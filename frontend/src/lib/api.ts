@@ -96,6 +96,26 @@ export interface ScanRunResult {
   jobs: ScanJob[];
 }
 
+export interface SkillAttachInput {
+  targetProviderZid: string;
+  mode: "move" | "link";
+}
+
+export interface SkillAttachScanJob {
+  providerZid: string;
+  job: ScanJob;
+}
+
+export interface SkillAttachResult {
+  skillZid: string;
+  mode: "move" | "link";
+  sourceProvider: Provider;
+  targetProvider: Provider;
+  sourcePath: string;
+  targetPath: string;
+  jobs: SkillAttachScanJob[];
+}
+
 export interface ConflictGroup {
   kind: string;
   key: string;
@@ -182,6 +202,11 @@ export const api = {
   getSkills: (query: SkillQuery = {}) =>
     request<Skill[]>(`/api/skills${toQueryString(query)}`),
   getSkill: (zid: string) => request<Skill>(`/api/skills/${zid}`),
+  attachSkill: (zid: string, input: SkillAttachInput) =>
+    request<SkillAttachResult>(`/api/skills/${zid}/attach`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   getSkillFiles: (zid: string) => request<FileNode[]>(`/api/skills/${zid}/files`),
   getSkillFileContent: (zid: string, path: string) =>
     request<FileContent>(`/api/skills/${zid}/file-content${toQueryString({ path })}`),

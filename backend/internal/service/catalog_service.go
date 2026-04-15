@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -75,6 +76,26 @@ type FileNode struct {
 type FileContent struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
+}
+
+type SkillAttachInput struct {
+	TargetProviderZid string `json:"targetProviderZid"`
+	Mode              string `json:"mode"`
+}
+
+type SkillAttachScanJob struct {
+	ProviderZid string         `json:"providerZid"`
+	Job         models.ScanJob `json:"job"`
+}
+
+type SkillAttachResult struct {
+	SkillZid       string               `json:"skillZid"`
+	Mode           string               `json:"mode"`
+	SourceProvider models.Provider      `json:"sourceProvider"`
+	TargetProvider models.Provider      `json:"targetProvider"`
+	SourcePath     string               `json:"sourcePath"`
+	TargetPath     string               `json:"targetPath"`
+	Jobs           []SkillAttachScanJob `json:"jobs,omitempty"`
 }
 
 func NewCatalogService(db *gorm.DB) *CatalogService {
@@ -263,6 +284,64 @@ func (s *CatalogService) GetSkillFileContent(ctx context.Context, zid, relativeP
 		return nil, ErrBinaryFile
 	}
 	return &FileContent{Path: relativePath, Content: string(data)}, nil
+}
+
+func (s *CatalogService) AttachSkill(ctx context.Context, skillZid string, input SkillAttachInput) (*SkillAttachResult, error) {
+	mode := strings.ToLower(strings.TrimSpace(input.Mode))
+	if mode != "move" && mode != "link" {
+		return nil, fmt.Errorf("%w: mode must be move or link", ErrInvalidInput)
+	}
+	if strings.TrimSpace(input.TargetProviderZid) == "" {
+		return nil, fmt.Errorf("%w: targetProviderZid is required", ErrInvalidInput)
+	}
+
+	skill, err := s.GetSkill(ctx, skillZid)
+	if err != nil {
+		return nil, err
+	}
+	targetProvider, err := s.GetProvider(ctx, input.TargetProviderZid)
+	if err != nil {
+		return nil, err
+	}
+	if !targetProvider.Enabled {
+		return nil, fmt.Errorf("%w: target provider must be enabled", ErrInvalidInput)
+	}
+	if skill.Provider.Zid == targetProvider.Zid {
+		return nil, fmt.Errorf("%w: skill already belongs to target provider", ErrInvalidInput)
+	}
+
+	sourcePath := filepath.Clean(skill.RootPath)
+	if !pathWithinRoot(skill.Provider.RootPath, sourcePath) {
+		return nil, fmt.Errorf("%w: skill rootPath is outside source provider root", ErrInvalidInput)
+	}
+	targetPath, err := safeJoin(targetProvider.RootPath, skill.DirectoryName)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid target path", ErrInvalidInput)
+	}
+	if _, statErr := os.Lstat(targetPath); statErr == nil {
+		return nil, fmt.Errorf("%w: target path already exists", ErrInvalidInput)
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return nil, statErr
+	}
+
+	if mode == "move" {
+		if err := moveDirectory(sourcePath, targetPath); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := os.Symlink(sourcePath, targetPath); err != nil {
+			return nil, err
+		}
+	}
+
+	return &SkillAttachResult{
+		SkillZid:       skill.Zid,
+		Mode:           mode,
+		SourceProvider: skill.Provider,
+		TargetProvider: *targetProvider,
+		SourcePath:     sourcePath,
+		TargetPath:     targetPath,
+	}, nil
 }
 
 func (s *CatalogService) ListScanJobs(ctx context.Context) ([]models.ScanJob, error) {
@@ -510,6 +589,19 @@ func pathsOverlap(left, right string) bool {
 	return false
 }
 
+func pathWithinRoot(rootPath, candidate string) bool {
+	rootPath = filepath.Clean(rootPath)
+	candidate = filepath.Clean(candidate)
+	if rootPath == candidate {
+		return true
+	}
+	rel, err := filepath.Rel(rootPath, candidate)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
 func safeJoin(rootPath, relativePath string) (string, error) {
 	cleanRelative := filepath.Clean(relativePath)
 	joined := filepath.Join(rootPath, cleanRelative)
@@ -521,6 +613,79 @@ func safeJoin(rootPath, relativePath string) (string, error) {
 		return "", ErrInvalidInput
 	}
 	return joined, nil
+}
+
+func moveDirectory(sourcePath, targetPath string) error {
+	if err := os.Rename(sourcePath, targetPath); err == nil {
+		return nil
+	} else if linkErr, ok := err.(*os.LinkError); !ok || linkErr.Err == nil || !strings.Contains(strings.ToLower(linkErr.Err.Error()), "cross-device") {
+		return err
+	}
+
+	if err := copyDirectory(sourcePath, targetPath); err != nil {
+		_ = os.RemoveAll(targetPath)
+		return err
+	}
+	return os.RemoveAll(sourcePath)
+}
+
+func copyDirectory(sourcePath, targetPath string) error {
+	info, err := os.Stat(sourcePath)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%w: sourcePath must be a directory", ErrInvalidInput)
+	}
+	if err := os.MkdirAll(targetPath, info.Mode().Perm()); err != nil {
+		return err
+	}
+
+	return filepath.Walk(sourcePath, func(path string, _ os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == sourcePath {
+			return nil
+		}
+		rel, err := filepath.Rel(sourcePath, path)
+		if err != nil {
+			return err
+		}
+		targetEntryPath := filepath.Join(targetPath, rel)
+		info, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			linkTarget, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			return os.Symlink(linkTarget, targetEntryPath)
+		}
+		if info.IsDir() {
+			return os.MkdirAll(targetEntryPath, info.Mode().Perm())
+		}
+		return copyFile(path, targetEntryPath, info.Mode().Perm())
+	})
+}
+
+func copyFile(sourcePath, targetPath string, mode os.FileMode) error {
+	sourceFile, err := os.Open(sourcePath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = sourceFile.Close() }()
+
+	targetFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = targetFile.Close() }()
+
+	_, err = io.Copy(targetFile, sourceFile)
+	return err
 }
 
 func listFileNodes(rootPath, currentPath string) ([]FileNode, error) {

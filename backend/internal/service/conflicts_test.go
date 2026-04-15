@@ -4,9 +4,6 @@ import (
 	"backend-go/internal/models"
 	"testing"
 	"time"
-
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
 )
 
 func TestBuildConflictGroupsClassifiesContentDiff(t *testing.T) {
@@ -43,10 +40,7 @@ func TestBuildConflictGroupsClassifiesContentDiff(t *testing.T) {
 }
 
 func TestRebuildConflictStateRepairsInvalidConflictKindsJSON(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite db: %v", err)
-	}
+	db := openCatalogTestDB(t)
 	if err := db.AutoMigrate(models.ModelsForAutoMigrate...); err != nil {
 		t.Fatalf("auto migrate: %v", err)
 	}

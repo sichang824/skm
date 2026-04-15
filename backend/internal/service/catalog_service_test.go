@@ -3,6 +3,8 @@ package service
 import (
 	"backend-go/internal/models"
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -10,14 +12,135 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestListIssuesLatestDedupesAcrossLatestJobs(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+func TestAttachSkillMoveMovesDirectory(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	baseDir := t.TempDir()
+	sourceRoot := filepath.Join(baseDir, "source")
+	targetRoot := filepath.Join(baseDir, "target")
+	if err := os.MkdirAll(sourceRoot, 0o755); err != nil {
+		t.Fatalf("mkdir source root: %v", err)
+	}
+	if err := os.MkdirAll(targetRoot, 0o755); err != nil {
+		t.Fatalf("mkdir target root: %v", err)
+	}
+
+	sourceProvider := createTestProvider(t, db, "Source", sourceRoot)
+	targetProvider := createTestProvider(t, db, "Target", targetRoot)
+	skill := createTestSkill(t, db, sourceProvider, filepath.Join(sourceRoot, "alpha-skill"), "alpha_skill")
+
+	result, err := service.AttachSkill(ctx, skill.Zid, SkillAttachInput{TargetProviderZid: targetProvider.Zid, Mode: "move"})
+	if err != nil {
+		t.Fatalf("AttachSkill move returned error: %v", err)
+	}
+	if _, err := os.Stat(skill.RootPath); !os.IsNotExist(err) {
+		t.Fatalf("expected source path to be moved, stat err=%v", err)
+	}
+	if _, err := os.Stat(result.TargetPath); err != nil {
+		t.Fatalf("expected target path to exist: %v", err)
+	}
+	if got, want := result.TargetPath, filepath.Join(targetRoot, skill.DirectoryName); got != want {
+		t.Fatalf("unexpected target path: got %s want %s", got, want)
+	}
+}
+
+func TestAttachSkillLinkCreatesDiscoverableSymlink(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	baseDir := t.TempDir()
+	sourceRoot := filepath.Join(baseDir, "source")
+	targetRoot := filepath.Join(baseDir, "target")
+	if err := os.MkdirAll(sourceRoot, 0o755); err != nil {
+		t.Fatalf("mkdir source root: %v", err)
+	}
+	if err := os.MkdirAll(targetRoot, 0o755); err != nil {
+		t.Fatalf("mkdir target root: %v", err)
+	}
+
+	sourceProvider := createTestProvider(t, db, "Source Link", sourceRoot)
+	targetProvider := createTestProvider(t, db, "Target Link", targetRoot)
+	skill := createTestSkill(t, db, sourceProvider, filepath.Join(sourceRoot, "linked-skill"), "linked_skill")
+
+	result, err := service.AttachSkill(ctx, skill.Zid, SkillAttachInput{TargetProviderZid: targetProvider.Zid, Mode: "link"})
+	if err != nil {
+		t.Fatalf("AttachSkill link returned error: %v", err)
+	}
+	info, err := os.Lstat(result.TargetPath)
+	if err != nil {
+		t.Fatalf("lstat target path: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("expected target path to be a symlink")
+	}
+
+	roots, _, err := collectRecursiveSkillRoots(targetRoot)
+	if err != nil {
+		t.Fatalf("collectRecursiveSkillRoots returned error: %v", err)
+	}
+	if len(roots) != 1 || roots[0] != result.TargetPath {
+		t.Fatalf("expected symlinked skill root to be discoverable, got %#v", roots)
+	}
+}
+
+func openCatalogTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "catalog-test.db")
+	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
 	if err := db.AutoMigrate(&models.Provider{}, &models.Skill{}, &models.ScanJob{}, &models.ScanIssue{}); err != nil {
 		t.Fatalf("auto migrate: %v", err)
 	}
+	return db
+}
+
+func createTestProvider(t *testing.T, db *gorm.DB, name, rootPath string) *models.Provider {
+	t.Helper()
+	provider := &models.Provider{Name: name, Type: "workspace", RootPath: rootPath, Enabled: true, Priority: 100, ScanMode: "recursive"}
+	if err := db.Create(provider).Error; err != nil {
+		t.Fatalf("create provider %s: %v", name, err)
+	}
+	return provider
+}
+
+func createTestSkill(t *testing.T, db *gorm.DB, provider *models.Provider, rootPath, skillName string) *models.Skill {
+	t.Helper()
+	if err := os.MkdirAll(rootPath, 0o755); err != nil {
+		t.Fatalf("mkdir skill root: %v", err)
+	}
+	skillMdPath := filepath.Join(rootPath, "SKILL.md")
+	content := "---\nname: " + skillName + "\n---\nsummary"
+	if err := os.WriteFile(skillMdPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write SKILL.md: %v", err)
+	}
+	now := time.Now()
+	skill := &models.Skill{
+		ProviderID:     provider.ID,
+		Name:           skillName,
+		Slug:           skillName,
+		DirectoryName:  filepath.Base(rootPath),
+		RootPath:       rootPath,
+		SkillMdPath:    skillMdPath,
+		Status:         "ready",
+		Tags:           []string{},
+		IssueCodes:     []string{},
+		ConflictKinds:  []string{},
+		LastScannedAt:  now,
+		LastModifiedAt: &now,
+	}
+	if err := db.Create(skill).Error; err != nil {
+		t.Fatalf("create skill: %v", err)
+	}
+	return skill
+}
+
+func TestListIssuesLatestDedupesAcrossLatestJobs(t *testing.T) {
+	db := openCatalogTestDB(t)
 
 	providerA := models.Provider{Name: "Provider A", Type: "workspace", RootPath: "/tmp/provider-a", Enabled: true, Priority: 100, ScanMode: "recursive"}
 	providerB := models.Provider{Name: "Provider B", Type: "workspace", RootPath: "/tmp/provider-b", Enabled: true, Priority: 90, ScanMode: "recursive"}

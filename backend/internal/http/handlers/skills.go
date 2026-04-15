@@ -10,10 +10,11 @@ import (
 
 type SkillHandler struct {
 	catalog *service.CatalogService
+	scanner *service.ScanService
 }
 
-func NewSkillHandler(catalog *service.CatalogService) *SkillHandler {
-	return &SkillHandler{catalog: catalog}
+func NewSkillHandler(catalog *service.CatalogService, scanner *service.ScanService) *SkillHandler {
+	return &SkillHandler{catalog: catalog, scanner: scanner}
 }
 
 func (h *SkillHandler) List(c *gin.Context) {
@@ -64,4 +65,38 @@ func (h *SkillHandler) FileContent(c *gin.Context) {
 		return
 	}
 	response.OK(c, content)
+}
+
+func (h *SkillHandler) Attach(c *gin.Context) {
+	var req service.SkillAttachInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeServiceError(c, service.ErrInvalidInput)
+		return
+	}
+
+	result, err := h.catalog.AttachSkill(c.Request.Context(), c.Param("zid"), req)
+	if err != nil {
+		writeServiceError(c, err)
+		return
+	}
+
+	jobs := make([]service.SkillAttachScanJob, 0, 2)
+	if result.Mode == "move" {
+		sourceJob, scanErr := h.scanner.ScanProviderByZid(c.Request.Context(), result.SourceProvider.Zid)
+		if scanErr != nil {
+			writeServiceError(c, scanErr)
+			return
+		}
+		jobs = append(jobs, service.SkillAttachScanJob{ProviderZid: result.SourceProvider.Zid, Job: *sourceJob})
+	}
+
+	targetJob, scanErr := h.scanner.ScanProviderByZid(c.Request.Context(), result.TargetProvider.Zid)
+	if scanErr != nil {
+		writeServiceError(c, scanErr)
+		return
+	}
+	jobs = append(jobs, service.SkillAttachScanJob{ProviderZid: result.TargetProvider.Zid, Job: *targetJob})
+
+	result.Jobs = jobs
+	response.OK(c, result)
 }

@@ -381,10 +381,14 @@ func collectShallowSkillRoots(rootPath string) ([]string, []discoveredIssue, err
 	results := make([]string, 0, len(entries))
 	issues := make([]discoveredIssue, 0)
 	for _, entry := range entries {
-		if !entry.IsDir() || isIgnoredName(entry.Name()) {
+		if isIgnoredName(entry.Name()) {
 			continue
 		}
 		dirPath := filepath.Join(rootPath, entry.Name())
+		isDir, err := isDirectoryLike(dirPath, entry)
+		if err != nil || !isDir {
+			continue
+		}
 		skillMdPath := filepath.Join(dirPath, "SKILL.md")
 		if _, err := os.Stat(skillMdPath); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
@@ -414,7 +418,11 @@ func collectRecursiveSkillRoots(rootPath string) ([]string, []discoveredIssue, e
 		if path == rootPath {
 			return nil
 		}
-		if !entry.IsDir() {
+		isDir, err := isDirectoryLike(path, entry)
+		if err != nil {
+			return err
+		}
+		if !isDir {
 			return nil
 		}
 		if isIgnoredName(entry.Name()) {
@@ -424,10 +432,16 @@ func collectRecursiveSkillRoots(rootPath string) ([]string, []discoveredIssue, e
 		_, statErr := os.Stat(skillMdPath)
 		if statErr == nil {
 			results = append(results, path)
-			return filepath.SkipDir
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		if !errors.Is(statErr, os.ErrNotExist) {
 			return statErr
+		}
+		if !entry.IsDir() {
+			return nil
 		}
 		return nil
 	})
@@ -436,6 +450,23 @@ func collectRecursiveSkillRoots(rootPath string) ([]string, []discoveredIssue, e
 	}
 	sort.Strings(results)
 	return results, []discoveredIssue{}, nil
+}
+
+func isDirectoryLike(path string, entry fs.DirEntry) (bool, error) {
+	if entry.IsDir() {
+		return true, nil
+	}
+	if entry.Type()&fs.ModeSymlink == 0 {
+		return false, nil
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	return info.IsDir(), nil
 }
 
 func skillChanged(existing models.Skill, discovered discoveredSkill) bool {

@@ -1,10 +1,14 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
-import { FolderTree, Search } from "lucide-react";
+import { ArrowRightLeft, FolderInput, FolderTree, Link2, Search } from "lucide-react";
 import { useNavigate, useOutletContext, useParams } from "react-router-dom";
+import { toast } from "sonner";
 import { SkillDetailDialog } from "../components/skm/SkillDetailDialog";
 import type { ShellOutletContext } from "../components/skm/ConsoleShell";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../components/ui/accordion";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { api, type Provider, type Skill } from "../lib/api";
+
+type ProviderAttachMode = "move" | "link";
 
 export function SkillsPage() {
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -14,11 +18,35 @@ export function SkillsPage() {
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [draggingSkillZid, setDraggingSkillZid] = useState<string | null>(null);
+  const [dropTargetProviderZid, setDropTargetProviderZid] = useState<string | null>(null);
+  const [pendingDragSkill, setPendingDragSkill] = useState<Skill | null>(null);
+  const [pendingDropProvider, setPendingDropProvider] = useState<Provider | null>(null);
+  const [attachMode, setAttachMode] = useState<ProviderAttachMode>("move");
+  const [attachDialogOpen, setAttachDialogOpen] = useState(false);
+  const [attachSubmitting, setAttachSubmitting] = useState(false);
   const { refreshKey } = useOutletContext<ShellOutletContext>();
   const { zid } = useParams();
   const navigate = useNavigate();
 
   const deferredQuery = useDeferredValue(search);
+
+  async function loadSkills() {
+    setLoading(true);
+    setError("");
+    try {
+      const [skillData, providerData] = await Promise.all([
+        api.getSkills({ sort: "lastScanned" }),
+        api.getProviders(),
+      ]);
+      setSkills(skillData);
+      setProviders(providerData);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Failed to load skills");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   const skillCountByProvider = useMemo(() => {
     const counts = new Map<string, number>();
@@ -39,10 +67,10 @@ export function SkillsPage() {
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
-    setError("");
 
-    async function loadSkills() {
+    async function loadSkillsSafe() {
+      setLoading(true);
+      setError("");
       try {
         const [skillData, providerData] = await Promise.all([
           api.getSkills({ sort: "lastScanned" }),
@@ -65,7 +93,7 @@ export function SkillsPage() {
       }
     }
 
-    void loadSkills();
+    void loadSkillsSafe();
     return () => {
       active = false;
     };
@@ -95,6 +123,84 @@ export function SkillsPage() {
       return matchesSearch && matchesProvider && matchesStatus;
     });
   }, [deferredQuery, selectedProviderZid, skills, status]);
+
+  function resetDragState() {
+    setDraggingSkillZid(null);
+    setDropTargetProviderZid(null);
+  }
+
+  function handleSkillDragStart(skill: Skill) {
+    setDraggingSkillZid(skill.zid);
+  }
+
+  function handleSkillDragEnd() {
+    resetDragState();
+  }
+
+  function handleProviderDragOver(event: React.DragEvent<HTMLButtonElement>, providerItem: Provider) {
+    if (!draggingSkillZid) {
+      return;
+    }
+    event.preventDefault();
+    if (dropTargetProviderZid !== providerItem.zid) {
+      setDropTargetProviderZid(providerItem.zid);
+    }
+  }
+
+  function handleProviderDragLeave(providerItem: Provider) {
+    if (dropTargetProviderZid === providerItem.zid) {
+      setDropTargetProviderZid(null);
+    }
+  }
+
+  function handleProviderDrop(event: React.DragEvent<HTMLButtonElement>, providerItem: Provider) {
+    event.preventDefault();
+    const draggedSkill = skills.find((item) => item.zid === draggingSkillZid);
+    resetDragState();
+    if (!draggedSkill) {
+      return;
+    }
+    if (draggedSkill.provider?.zid === providerItem.zid) {
+      toast.info(`${draggedSkill.name} 已经属于 ${providerItem.name}`);
+      return;
+    }
+    setPendingDragSkill(draggedSkill);
+    setPendingDropProvider(providerItem);
+    setAttachMode("move");
+    setAttachDialogOpen(true);
+  }
+
+  function closeAttachDialog(open: boolean) {
+    if (attachSubmitting && !open) {
+      return;
+    }
+    setAttachDialogOpen(open);
+    if (!open) {
+      setPendingDragSkill(null);
+      setPendingDropProvider(null);
+      setAttachMode("move");
+    }
+  }
+
+  async function handleConfirmAttach() {
+    if (!pendingDragSkill || !pendingDropProvider) {
+      return;
+    }
+    setAttachSubmitting(true);
+    try {
+      await api.attachSkill(pendingDragSkill.zid, {
+        targetProviderZid: pendingDropProvider.zid,
+        mode: attachMode,
+      });
+      await loadSkills();
+      toast.success(`${pendingDragSkill.name} 已${attachMode === "move" ? "移动到" : "关联到"} ${pendingDropProvider.name}`);
+      closeAttachDialog(false);
+    } catch (submitError) {
+      toast.error(submitError instanceof Error ? submitError.message : "操作失败");
+    } finally {
+      setAttachSubmitting(false);
+    }
+  }
 
   return (
     <div className="relative flex h-full min-h-0 flex-col gap-4">
@@ -158,18 +264,22 @@ export function SkillsPage() {
                     </button>
                     {providers.map((item) => {
                       const isActive = item.zid === selectedProviderZid;
+                      const isDropTarget = item.zid === dropTargetProviderZid;
                       return (
                         <button
                           key={item.zid}
                           type="button"
                           onClick={() => setSelectedProviderZid(item.zid)}
-                          className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition ${isActive ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200" : "text-slate-600 hover:bg-slate-50 hover:text-slate-800"}`}
+                          onDragOver={(event) => handleProviderDragOver(event, item)}
+                          onDragLeave={() => handleProviderDragLeave(item)}
+                          onDrop={(event) => handleProviderDrop(event, item)}
+                          className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition ${isDropTarget ? "bg-emerald-50 text-emerald-700 ring-2 ring-emerald-200" : isActive ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200" : "text-slate-600 hover:bg-slate-50 hover:text-slate-800"}`}
                         >
                           <div className="min-w-0">
                             <div className="truncate text-sm font-medium">{item.name}</div>
-                            <div className="truncate text-xs text-slate-400">{item.type}</div>
+                            <div className={`truncate text-xs ${isDropTarget ? "text-emerald-500" : "text-slate-400"}`}>{isDropTarget ? "释放以选择迁移方式" : item.type}</div>
                           </div>
-                          <span className={`ml-3 rounded-full px-2 py-0.5 text-xs ${isActive ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-500"}`}>{skillCountByProvider.get(item.zid) ?? 0}</span>
+                          <span className={`ml-3 rounded-full px-2 py-0.5 text-xs ${isDropTarget ? "bg-emerald-100 text-emerald-700" : isActive ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-500"}`}>{skillCountByProvider.get(item.zid) ?? 0}</span>
                         </button>
                       );
                     })}
@@ -212,7 +322,14 @@ export function SkillsPage() {
                     </tr>
                   ))
                 ) : filteredSkills.map((skill) => (
-                  <tr key={skill.zid} className="group cursor-pointer transition-colors hover:bg-blue-50" onClick={() => navigate(`/skills/${skill.zid}`)}>
+                  <tr
+                    key={skill.zid}
+                    draggable
+                    onDragStart={() => handleSkillDragStart(skill)}
+                    onDragEnd={handleSkillDragEnd}
+                    className={`group cursor-pointer transition-colors hover:bg-blue-50 ${draggingSkillZid === skill.zid ? "bg-blue-50/70 opacity-70" : ""}`}
+                    onClick={() => navigate(`/skills/${skill.zid}`)}
+                  >
                     <td className="px-4 py-3 font-medium text-slate-800">
                       <div className="flex items-center gap-2">
                         <span className="text-blue-600">◈</span>
@@ -248,7 +365,109 @@ export function SkillsPage() {
           <SkillDetailDialog zid={zid} open={Boolean(zid)} onOpenChange={(open) => { if (!open) { navigate("/skills"); } }} />
         </div>
       ) : null}
+
+      <Dialog open={attachDialogOpen} onOpenChange={closeAttachDialog}>
+        <DialogContent className="max-w-2xl rounded-2xl border-slate-200 bg-white p-0 shadow-[0_24px_90px_rgba(15,23,42,0.16)]" showCloseButton={false}>
+          <div className="border-b border-slate-200 px-6 py-5">
+            <DialogHeader className="gap-2 text-left">
+              <DialogTitle className="text-xl font-semibold text-slate-900">拖拽操作确认</DialogTitle>
+              <DialogDescription className="text-sm text-slate-500">
+                {pendingDragSkill && pendingDropProvider
+                  ? `已将 ${pendingDragSkill.name} 拖到 ${pendingDropProvider.name}。请选择要执行的目录处理方式。`
+                  : "请选择要执行的目录处理方式。"}
+              </DialogDescription>
+            </DialogHeader>
+            {pendingDragSkill && pendingDropProvider ? (
+              <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-slate-600">
+                <span className="rounded-full bg-slate-100 px-3 py-1 font-medium text-slate-700">{pendingDragSkill.name}</span>
+                <ArrowRightLeft className="h-4 w-4 text-slate-400" />
+                <span className="rounded-full bg-blue-50 px-3 py-1 font-medium text-blue-700">{pendingDropProvider.name}</span>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="grid gap-4 px-6 py-6 md:grid-cols-2">
+            <ActionModeCard
+              title="移动"
+              description="将 Skill 目录整体迁移到目标 Provider 根目录，适合明确变更归属。"
+              icon={FolderInput}
+              selected={attachMode === "move"}
+              accent="blue"
+              onSelect={() => setAttachMode("move")}
+            />
+            <ActionModeCard
+              title="关联"
+              description="在目标 Provider 下建立目录链接，保留原目录位置，适合共享复用。"
+              icon={Link2}
+              selected={attachMode === "link"}
+              accent="emerald"
+              onSelect={() => setAttachMode("link")}
+            />
+          </div>
+
+          <DialogFooter className="border-t border-slate-200 px-6 py-4 sm:justify-between">
+            <button
+              type="button"
+              onClick={() => closeAttachDialog(false)}
+              disabled={attachSubmitting}
+              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmAttach}
+              disabled={attachSubmitting}
+              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {attachSubmitting ? "处理中…" : `确认${attachMode === "move" ? "移动" : "关联"}`}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+function ActionModeCard({
+  title,
+  description,
+  icon: Icon,
+  selected,
+  accent,
+  onSelect,
+}: {
+  title: string;
+  description: string;
+  icon: typeof FolderInput;
+  selected: boolean;
+  accent: "blue" | "emerald";
+  onSelect: () => void;
+}) {
+  const selectedClass = accent === "blue"
+    ? "border-blue-200 bg-blue-50 shadow-[0_16px_32px_rgba(37,99,235,0.12)]"
+    : "border-emerald-200 bg-emerald-50 shadow-[0_16px_32px_rgba(16,185,129,0.12)]";
+  const iconClass = accent === "blue" ? "bg-blue-100 text-blue-700" : "bg-emerald-100 text-emerald-700";
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`rounded-2xl border p-5 text-left transition ${selected ? selectedClass : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"}`}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-base font-semibold text-slate-900">{title}</div>
+          <p className="mt-2 text-sm leading-6 text-slate-500">{description}</p>
+        </div>
+        <span className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${iconClass}`}>
+          <Icon className="h-5 w-5" />
+        </span>
+      </div>
+      <div className="mt-4 text-xs font-medium text-slate-400">
+        {selected ? "已选择该方式" : "点击选择该方式"}
+      </div>
+    </button>
   );
 }
 

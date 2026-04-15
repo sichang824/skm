@@ -47,7 +47,7 @@ make dev/seed
 
 ## 主要接口
 
-```bash
+````bash
 GET  /healthz
 GET  /version
 
@@ -69,9 +69,21 @@ GET  /api/conflicts
 
 GET  /api/skills
 GET  /api/skills/:zid
+POST /api/skills/:zid/attach
 GET  /api/skills/:zid/files
 GET  /api/skills/:zid/file-content?path=SKILL.md
-```
+
+`POST /api/skills/:zid/attach` 请求体:
+
+```json
+{
+	"targetProviderZid": "PROV0001",
+	"mode": "move"
+}
+````
+
+- `mode=move`: 将 Skill 目录整体移动到目标 Provider 根目录后重扫源/目标 Provider。
+- `mode=link`: 在目标 Provider 根目录创建目录链接后重扫目标 Provider。
 
 ## 数据模型
 

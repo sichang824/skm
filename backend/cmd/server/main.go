@@ -83,7 +83,7 @@ func main() {
 
 	dashboardHandler := handlers.NewDashboardHandler(catalogService)
 	providerHandler := handlers.NewProviderHandler(catalogService, scanService)
-	skillHandler := handlers.NewSkillHandler(catalogService)
+	skillHandler := handlers.NewSkillHandler(catalogService, scanService)
 	scanHandler := handlers.NewScanHandler(catalogService, scanService)
 
 	api := r.Group("/api")
@@ -104,6 +104,7 @@ func main() {
 		api.GET("/skills/:zid", skillHandler.Get)
 		api.GET("/skills/:zid/files", skillHandler.Files)
 		api.GET("/skills/:zid/file-content", skillHandler.FileContent)
+		api.POST("/skills/:zid/attach", skillHandler.Attach)
 	}
 
 	// Start server
