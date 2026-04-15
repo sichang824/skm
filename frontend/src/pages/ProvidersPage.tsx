@@ -3,11 +3,14 @@ import { Pen, Plus, RotateCw, Trash2, X } from "lucide-react";
 import { useOutletContext } from "react-router-dom";
 import { toast } from "sonner";
 import type { ShellOutletContext } from "../components/skm/ConsoleShell";
+import { ProviderIcon } from "../components/skm/ProviderIcon";
+import { ProviderIconPicker } from "../components/skm/ProviderIconPicker";
 import { api, type Provider, type ProviderInput, type ScanIssue, type Skill } from "../lib/api";
 
 const DEFAULT_PROVIDER: ProviderInput = {
   name: "",
   type: "workspace",
+  icon: "",
   rootPath: "",
   enabled: true,
   priority: 100,
@@ -180,6 +183,7 @@ export function ProvidersPage() {
               <option value="recursive">recursive</option>
               <option value="shallow">shallow</option>
             </select>
+            <ProviderIconPicker value={form.icon} onChange={(icon) => setForm({ ...form, icon })} />
             <textarea
               className="md:col-span-2 min-h-28 rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
               placeholder="描述"
@@ -223,8 +227,13 @@ export function ProvidersPage() {
                   <input type="checkbox" checked={provider.enabled} onChange={() => void handleToggleEnabled(provider)} className="h-4 w-4 cursor-pointer rounded border-slate-300 text-blue-600" />
                 </td>
                 <td className="px-4 py-3">
-                  <div className="font-medium text-slate-800">{provider.name}</div>
-                  <div className="mt-0.5 text-xs text-slate-500">{skillCountByProvider.get(provider.zid) ?? 0} skills · {issueCountByProvider.get(provider.zid) ?? 0} issues</div>
+                  <div className="flex items-center gap-3">
+                    <ProviderIcon provider={provider} className="h-10 w-10 rounded-2xl p-2" title={provider.name} />
+                    <div className="min-w-0">
+                      <div className="truncate font-medium text-slate-800">{provider.name}</div>
+                      <div className="mt-0.5 text-xs text-slate-500">{skillCountByProvider.get(provider.zid) ?? 0} skills · {issueCountByProvider.get(provider.zid) ?? 0} issues</div>
+                    </div>
+                  </div>
                 </td>
                 <td className="px-4 py-3 font-mono text-xs text-slate-500">{provider.rootPath}</td>
                 <td className="px-4 py-3"><span className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">{provider.type}</span></td>
@@ -266,6 +275,7 @@ function providerToInput(provider: Provider): ProviderInput {
   return {
     name: provider.name,
     type: provider.type,
+    icon: provider.icon ?? "",
     rootPath: provider.rootPath,
     enabled: provider.enabled,
     priority: provider.priority,

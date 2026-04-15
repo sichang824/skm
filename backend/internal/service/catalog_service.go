@@ -60,6 +60,7 @@ type CatalogService struct {
 type ProviderInput struct {
 	Name        string `json:"name"`
 	Type        string `json:"type"`
+	Icon        string `json:"icon"`
 	RootPath    string `json:"rootPath"`
 	Enabled     bool   `json:"enabled"`
 	Priority    int    `json:"priority"`
@@ -631,6 +632,7 @@ func (s *CatalogService) ListConflicts(ctx context.Context) ([]ConflictGroup, er
 func (s *CatalogService) normalizeProviderInput(ctx context.Context, existing *models.Provider, input ProviderInput) (*models.Provider, error) {
 	name := strings.TrimSpace(input.Name)
 	providerType := strings.TrimSpace(input.Type)
+	icon := normalizeProviderIcon(input.Icon)
 	rootPath := strings.TrimSpace(input.RootPath)
 	scanMode := strings.ToLower(strings.TrimSpace(input.ScanMode))
 	if scanMode == "" {
@@ -656,6 +658,7 @@ func (s *CatalogService) normalizeProviderInput(ctx context.Context, existing *m
 	}
 	provider.Name = name
 	provider.Type = providerType
+	provider.Icon = icon
 	provider.RootPath = filepath.Clean(absRoot)
 	provider.Enabled = input.Enabled
 	provider.Priority = input.Priority
@@ -682,6 +685,42 @@ func (s *CatalogService) normalizeProviderInput(ctx context.Context, existing *m
 	}
 
 	return provider, nil
+}
+
+func normalizeProviderIcon(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "" {
+		return ""
+	}
+
+	var builder strings.Builder
+	builder.Grow(len(normalized) + 2)
+	lastUnderscore := false
+	for _, char := range normalized {
+		switch {
+		case char >= 'a' && char <= 'z':
+			builder.WriteRune(char)
+			lastUnderscore = false
+		case char >= '0' && char <= '9':
+			builder.WriteRune(char)
+			lastUnderscore = false
+		default:
+			if builder.Len() == 0 || lastUnderscore {
+				continue
+			}
+			builder.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+
+	normalized = strings.Trim(builder.String(), "_")
+	if normalized == "" {
+		return ""
+	}
+	if normalized[0] >= '0' && normalized[0] <= '9' {
+		return "i_" + normalized
+	}
+	return normalized
 }
 
 func (s *CatalogService) countIssues(ctx context.Context, filters IssueListFilters) (int64, error) {

@@ -19,6 +19,7 @@ type Result struct {
 type providerSpec struct {
 	Name        string
 	Type        string
+	Icon        string
 	RelativeDir string
 	Priority    int
 	Description string
@@ -28,6 +29,7 @@ var defaultProviderSpecs = []providerSpec{
 	{
 		Name:        "Workbuddy Skills",
 		Type:        "workbuddy",
+		Icon:        "github_copilot",
 		RelativeDir: filepath.Join(".workbuddy", "skills"),
 		Priority:    400,
 		Description: "Default Workbuddy skill workspace",
@@ -35,6 +37,7 @@ var defaultProviderSpecs = []providerSpec{
 	{
 		Name:        "Workspace Skills",
 		Type:        "workspace",
+		Icon:        "visual_studio_code",
 		RelativeDir: filepath.Join("Workspace", "skills"),
 		Priority:    350,
 		Description: "Local workspace skill directory",
@@ -42,6 +45,7 @@ var defaultProviderSpecs = []providerSpec{
 	{
 		Name:        "Agents Global",
 		Type:        "global",
+		Icon:        "github_copilot",
 		RelativeDir: filepath.Join(".agents", "skills"),
 		Priority:    300,
 		Description: "Global Copilot agent skills",
@@ -49,6 +53,7 @@ var defaultProviderSpecs = []providerSpec{
 	{
 		Name:        "Cursor Skills",
 		Type:        "cursor",
+		Icon:        "cursor",
 		RelativeDir: filepath.Join(".cursor", "skills"),
 		Priority:    200,
 		Description: "Cursor local skill directory",
@@ -56,6 +61,7 @@ var defaultProviderSpecs = []providerSpec{
 	{
 		Name:        "Codex Skills",
 		Type:        "codex",
+		Icon:        "codex_openai",
 		RelativeDir: filepath.Join(".codex", "skills"),
 		Priority:    100,
 		Description: "Codex local skill directory",
@@ -103,6 +109,7 @@ func SeedDefaultProvidersForHome(db *gorm.DB, homeDir string) (*Result, error) {
 		provider := models.Provider{
 			Name:           spec.Name,
 			Type:           spec.Type,
+			Icon:           spec.Icon,
 			RootPath:       rootPath,
 			Enabled:        true,
 			Priority:       spec.Priority,

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Boxes, Bug, FolderTree, Radar, TriangleAlert } from "lucide-react";
 import { useOutletContext } from "react-router-dom";
+import { ProviderLabel } from "../components/skm/ProviderIcon";
 import type { ShellOutletContext } from "../components/skm/ConsoleShell";
 import { api, type DashboardSummary, type Provider, type ScanIssue, type ScanJob, type Skill } from "../lib/api";
 
@@ -86,7 +87,7 @@ export function DashboardPage() {
                 <li key={job.zid} className="flex items-start gap-3 text-slate-600">
                   <Radar className={`mt-0.5 h-4 w-4 ${job.status === "completed" ? "text-green-500" : "text-amber-500"}`} />
                   <div>
-                    <span className="font-medium text-slate-800">{job.provider?.name ?? "System"}</span>
+                    {job.provider ? <ProviderLabel provider={job.provider} className="max-w-full font-medium text-slate-800" iconClassName="h-5 w-5 rounded-md p-0.5" textClassName="font-medium text-slate-800" /> : <span className="font-medium text-slate-800">System</span>}
                     <span> 扫描完成。新增 {job.addedCount} 个，变更 {job.changedCount} 个，异常 {job.invalidCount} 个，冲突 {job.conflictCount} 个。</span>
                     <div className="mt-0.5 text-xs text-slate-500">开始于 {formatRelative(job.startedAt)} {job.finishedAt ? `· 结束于 ${formatRelative(job.finishedAt)}` : ""}</div>
                   </div>
@@ -109,7 +110,10 @@ export function DashboardPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-sm font-medium text-slate-900">{issue.message}</p>
-                    <p className="mt-1 text-xs text-slate-500">{issue.provider?.name ?? "Unknown provider"} · {issue.code} · {issue.rootPath}</p>
+                    <div className="mt-1 flex items-center gap-1 text-xs text-slate-500">
+                      {issue.provider ? <ProviderLabel provider={issue.provider} className="max-w-[240px]" iconClassName="h-4 w-4 rounded-md p-0.5" textClassName="truncate" /> : <span>Unknown provider</span>}
+                      <span>· {issue.code} · {issue.rootPath}</span>
+                    </div>
                   </div>
                   <span className={`rounded-md px-2 py-1 text-xs font-medium ${issue.severity === "error" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>{issue.severity}</span>
                 </div>
@@ -127,7 +131,7 @@ export function DashboardPage() {
             {providerDistribution.length === 0 ? <EmptyText text="暂无 Provider 数据" /> : providerDistribution.map(({ provider, skillCount }) => (
               <div key={provider.zid}>
                 <div className="mb-1 flex justify-between text-sm">
-                  <span className="font-medium text-slate-700">{provider.name}</span>
+                  <ProviderLabel provider={provider} className="max-w-[70%] font-medium text-slate-700" iconClassName="h-5 w-5 rounded-md p-0.5" textClassName="font-medium text-slate-700" />
                   <span className="text-slate-500">{skillCount} 个</span>
                 </div>
                 <div className="h-2 w-full rounded-full bg-slate-100">

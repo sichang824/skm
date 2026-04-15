@@ -17,6 +17,7 @@ export interface Provider {
   zid: string;
   name: string;
   type: string;
+  icon?: string;
   rootPath: string;
   enabled: boolean;
   priority: number;
@@ -160,6 +161,7 @@ export interface ConflictGroup {
 export interface ProviderInput {
   name: string;
   type: string;
+  icon: string;
   rootPath: string;
   enabled: boolean;
   priority: number;

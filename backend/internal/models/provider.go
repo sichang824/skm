@@ -6,6 +6,7 @@ type Provider struct {
 	BaseModel
 	Name            string     `gorm:"type:varchar(120);uniqueIndex;not null" json:"name"`
 	Type            string     `gorm:"type:varchar(64);index;not null" json:"type"`
+	Icon            string     `gorm:"type:varchar(128)" json:"icon,omitempty"`
 	RootPath        string     `gorm:"type:varchar(1024);uniqueIndex;not null" json:"rootPath"`
 	Enabled         bool       `gorm:"index;not null;default:true" json:"enabled"`
 	Priority        int        `gorm:"index;not null;default:100" json:"priority"`

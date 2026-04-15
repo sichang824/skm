@@ -7,6 +7,7 @@ import type { ShellOutletContext } from "../components/skm/ConsoleShell";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../components/ui/accordion";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { api, type Provider, type Skill } from "../lib/api";
+import { ProviderLabel } from "../components/skm/ProviderIcon";
 
 type ProviderAttachMode = "move" | "attach";
 
@@ -295,7 +296,7 @@ export function SkillsPage() {
                           className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition ${isDropTarget ? "bg-emerald-50 text-emerald-700 ring-2 ring-emerald-200" : isActive ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200" : "text-slate-600 hover:bg-slate-50 hover:text-slate-800"}`}
                         >
                           <div className="min-w-0">
-                            <div className="truncate text-sm font-medium">{item.name}</div>
+                            <ProviderLabel provider={item} className="max-w-full" iconClassName="h-5 w-5 rounded-md p-0.5" textClassName="truncate text-sm font-medium" />
                             <div className={`truncate text-xs ${isDropTarget ? "text-emerald-500" : "text-slate-400"}`}>{isDropTarget ? "释放以选择迁移方式" : item.type}</div>
                           </div>
                           <span className={`ml-3 rounded-full px-2 py-0.5 text-xs ${isDropTarget ? "bg-emerald-100 text-emerald-700" : isActive ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-500"}`}>{skillCountByProvider.get(item.zid) ?? 0}</span>
@@ -377,7 +378,7 @@ export function SkillsPage() {
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-slate-600">{skill.provider?.name ?? "Unknown"}</td>
+                        <td className="px-4 py-3 text-slate-600">{skill.provider ? <ProviderLabel provider={skill.provider} className="max-w-[220px]" iconClassName="h-5 w-5 rounded-md p-0.5" textClassName="truncate" /> : "Unknown"}</td>
                         <td className="px-4 py-3">
                           <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">{skill.category || "Uncategorized"}</span>
                         </td>
@@ -408,7 +409,7 @@ export function SkillsPage() {
                               </div>
                             </div>
                           </td>
-                          <td className="px-4 py-3 text-slate-600">{relatedSkill.provider?.name ?? "Unknown"}</td>
+                          <td className="px-4 py-3 text-slate-600">{relatedSkill.provider ? <ProviderLabel provider={relatedSkill.provider} className="max-w-[220px]" iconClassName="h-5 w-5 rounded-md p-0.5" textClassName="truncate" /> : "Unknown"}</td>
                           <td className="px-4 py-3">
                             <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">{relatedSkill.category || "Uncategorized"}</span>
                           </td>
