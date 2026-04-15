@@ -132,6 +132,15 @@ export interface SkillDeleteResult {
   job?: ScanJob;
 }
 
+export interface SkillSyncResult {
+  skillZid: string;
+  provider: Provider;
+  sourcePath: string;
+  targetPath: string;
+  synced: boolean;
+  job?: ScanJob;
+}
+
 export interface ConflictGroup {
   kind: string;
   key: string;
@@ -219,6 +228,7 @@ export const api = {
     request<Skill[]>(`/api/skills${toQueryString(query)}`),
   getSkill: (zid: string) => request<Skill>(`/api/skills/${zid}`),
   deleteSkill: (zid: string) => request<SkillDeleteResult>(`/api/skills/${zid}`, { method: "DELETE" }),
+  syncSkill: (zid: string) => request<SkillSyncResult>(`/api/skills/${zid}/sync`, { method: "POST" }),
   attachSkill: (zid: string, input: SkillAttachInput) =>
     request<SkillAttachResult>(`/api/skills/${zid}/attach`, {
       method: "POST",

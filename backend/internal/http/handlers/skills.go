@@ -116,3 +116,19 @@ func (h *SkillHandler) Delete(c *gin.Context) {
 	result.Job = job
 	response.OK(c, result)
 }
+
+func (h *SkillHandler) Sync(c *gin.Context) {
+	result, err := h.catalog.SyncSkill(c.Request.Context(), c.Param("zid"))
+	if err != nil {
+		writeServiceError(c, err)
+		return
+	}
+
+	job, scanErr := h.scanner.ScanProviderByZid(c.Request.Context(), result.Provider.Zid)
+	if scanErr != nil {
+		writeServiceError(c, scanErr)
+		return
+	}
+	result.Job = job
+	response.OK(c, result)
+}

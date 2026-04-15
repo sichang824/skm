@@ -126,6 +126,15 @@ type SkillDeleteResult struct {
 	Job         *models.ScanJob `json:"job,omitempty"`
 }
 
+type SkillSyncResult struct {
+	SkillZid   string          `json:"skillZid"`
+	Provider   models.Provider `json:"provider"`
+	SourcePath string          `json:"sourcePath"`
+	TargetPath string          `json:"targetPath"`
+	Synced     bool            `json:"synced"`
+	Job        *models.ScanJob `json:"job,omitempty"`
+}
+
 func NewCatalogService(db *gorm.DB) *CatalogService {
 	return &CatalogService{db: db}
 }
@@ -439,6 +448,75 @@ func (s *CatalogService) DeleteSkill(ctx context.Context, skillZid string) (*Ski
 	}, nil
 }
 
+func (s *CatalogService) SyncSkill(ctx context.Context, skillZid string) (*SkillSyncResult, error) {
+	skill, err := s.GetSkill(ctx, skillZid)
+	if err != nil {
+		return nil, err
+	}
+
+	targetPath := filepath.Clean(skill.RootPath)
+	providerRoot := filepath.Clean(skill.Provider.RootPath)
+	if !pathWithinRoot(providerRoot, targetPath) {
+		return nil, fmt.Errorf("%w: skill rootPath is outside provider root", ErrInvalidInput)
+	}
+
+	relation, err := readSkillRelationState(targetPath)
+	if err != nil {
+		return nil, err
+	}
+	if !relation.HasFrom || strings.TrimSpace(relation.FromPath) == "" {
+		return nil, fmt.Errorf("%w: skill is not an attached copy", ErrInvalidInput)
+	}
+	sourcePath := filepath.Clean(relation.FromPath)
+	if sourcePath == targetPath {
+		return nil, fmt.Errorf("%w: sourcePath must differ from targetPath", ErrInvalidInput)
+	}
+	sourceInfo, err := os.Stat(sourcePath)
+	if err != nil {
+		return nil, err
+	}
+	if !sourceInfo.IsDir() {
+		return nil, fmt.Errorf("%w: sourcePath must be a directory", ErrInvalidInput)
+	}
+	sourceRelation, err := readSkillRelationState(sourcePath)
+	if err != nil {
+		return nil, err
+	}
+	if sourceRelation.HasFrom {
+		return nil, fmt.Errorf("%w: source skill already has .from metadata", ErrInvalidInput)
+	}
+
+	if err := clearDirectoryContents(targetPath, map[string]struct{}{skillRelationFromFile: {}}); err != nil {
+		return nil, err
+	}
+	if err := copyDirectory(sourcePath, targetPath, copyDirectoryOptions{Overwrite: true, SkipRootFiles: map[string]struct{}{
+		skillRelationFromFile: {},
+		skillRelationToFile:   {},
+	}}); err != nil {
+		return nil, err
+	}
+	if err := writeSkillFromMetadata(targetPath, sourcePath); err != nil {
+		return nil, err
+	}
+	files, err := collectSkillFileList(sourcePath)
+	if err != nil {
+		return nil, err
+	}
+	sourceRelation.To.Files = files
+	sourceRelation.To.Directories = append(sourceRelation.To.Directories, targetPath)
+	if err := writeSkillToMetadata(sourcePath, sourceRelation.To); err != nil {
+		return nil, err
+	}
+
+	return &SkillSyncResult{
+		SkillZid:   skill.Zid,
+		Provider:   skill.Provider,
+		SourcePath: sourcePath,
+		TargetPath: targetPath,
+		Synced:     true,
+	}, nil
+}
+
 func (s *CatalogService) ListScanJobs(ctx context.Context) ([]models.ScanJob, error) {
 	var jobs []models.ScanJob
 	if err := s.db.WithContext(ctx).Preload("Provider").Order("started_at DESC").Find(&jobs).Error; err != nil {
@@ -727,6 +805,22 @@ func moveDirectory(sourcePath, targetPath string) error {
 type copyDirectoryOptions struct {
 	Overwrite     bool
 	SkipRootFiles map[string]struct{}
+}
+
+func clearDirectoryContents(rootPath string, skipNames map[string]struct{}) error {
+	entries, err := os.ReadDir(rootPath)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if _, skip := skipNames[entry.Name()]; skip {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(rootPath, entry.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func copyDirectory(sourcePath, targetPath string, options copyDirectoryOptions) error {

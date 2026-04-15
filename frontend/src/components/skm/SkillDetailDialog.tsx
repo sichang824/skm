@@ -1,17 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
-import { Copy, FileText, FolderOpen, Trash2, X } from "lucide-react";
+import { Copy, FileText, FolderOpen, RefreshCw, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
 import { api, type FileNode, type Skill } from "../../lib/api";
+
+const RELATION_SOURCE_PREVIEW = "__relation_from__";
+const RELATION_OUTPUT_PREVIEW = "__relation_to__";
 
 type SkillDetailDialogProps = {
   zid: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onDeleted?: () => void;
+  onSynced?: () => void;
 };
 
-export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted }: SkillDetailDialogProps) {
+export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted, onSynced }: SkillDetailDialogProps) {
   const [skill, setSkill] = useState<Skill | null>(null);
   const [files, setFiles] = useState<FileNode[]>([]);
   const [selectedPath, setSelectedPath] = useState("SKILL.md");
@@ -20,6 +24,43 @@ export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted }: SkillD
   const [previewError, setPreviewError] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  async function loadSkillDetail(skillZid: string, active: () => boolean) {
+    setLoading(true);
+    try {
+      const [skillData, fileTree] = await Promise.all([
+        api.getSkill(skillZid),
+        api.getSkillFiles(skillZid),
+      ]);
+      if (!active()) {
+        return;
+      }
+      setSkill(skillData);
+      setFiles(fileTree);
+      setSelectedPath((currentPath) => {
+        if (currentPath === RELATION_SOURCE_PREVIEW && skillData.relation?.mode === "from") {
+          return currentPath;
+        }
+        if (currentPath === RELATION_OUTPUT_PREVIEW && skillData.relation?.mode === "to") {
+          return currentPath;
+        }
+        if (currentPath && findFilePath(fileTree, currentPath)) {
+          return currentPath;
+        }
+        return findFirstFilePath(fileTree) ?? "SKILL.md";
+      });
+    } catch (error) {
+      if (!active()) {
+        return;
+      }
+      toast.error(error instanceof Error ? error.message : "加载技能详情失败");
+    } finally {
+      if (active()) {
+        setLoading(false);
+      }
+    }
+  }
 
   useEffect(() => {
     let active = true;
@@ -31,31 +72,7 @@ export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted }: SkillD
     setLoading(true);
     const skillZid = zid;
 
-    async function load() {
-      try {
-        const [skillData, fileTree] = await Promise.all([
-          api.getSkill(skillZid),
-          api.getSkillFiles(skillZid),
-        ]);
-        if (!active) {
-          return;
-        }
-        setSkill(skillData);
-        setFiles(fileTree);
-        setSelectedPath(findFirstFilePath(fileTree) ?? "SKILL.md");
-      } catch (error) {
-        if (!active) {
-          return;
-        }
-        toast.error(error instanceof Error ? error.message : "加载技能详情失败");
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    }
-
-    void load();
+    void loadSkillDetail(skillZid, () => active);
     return () => {
       active = false;
     };
@@ -69,6 +86,14 @@ export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted }: SkillD
       };
     }
     const skillZid = zid;
+
+    if (selectedPath === RELATION_SOURCE_PREVIEW || selectedPath === RELATION_OUTPUT_PREVIEW) {
+      setContent("");
+      setPreviewError("");
+      return () => {
+        active = false;
+      };
+    }
 
     async function loadContent() {
       try {
@@ -127,12 +152,37 @@ export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted }: SkillD
     }
   }
 
+  async function handleSyncSkill() {
+    if (!zid || !skill || skill.relation?.mode !== "from") {
+      return;
+    }
+    setSyncing(true);
+    try {
+      await api.syncSkill(zid);
+      toast.success(`${skill.name} 已从关联来源同步`);
+      await loadSkillDetail(zid, () => true);
+      onSynced?.();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "同步 Skill 失败");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   if (!open || !zid) {
     return null;
   }
 
   const previewPath = selectedPath || "SKILL.md";
-  const isSkillMarkdown = /(^|\/)SKILL\.md$/i.test(previewPath);
+  const isRelationSourcePreview = previewPath === RELATION_SOURCE_PREVIEW;
+  const isRelationOutputPreview = previewPath === RELATION_OUTPUT_PREVIEW;
+  const isRelationPreview = isRelationSourcePreview || isRelationOutputPreview;
+  const isSkillMarkdown = !isRelationPreview && /(^|\/)SKILL\.md$/i.test(previewPath);
+  const previewTitle = isRelationSourcePreview
+    ? "关联来源"
+    : isRelationOutputPreview
+      ? "关联输出"
+      : previewPath;
   const issueBadge = skill?.status === "invalid" ? "异常" : skill?.isConflict ? "存在冲突" : "Frontmatter Parsed";
   const issueBadgeClass = skill?.status === "invalid"
     ? "bg-red-50 text-red-700"
@@ -186,16 +236,26 @@ export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted }: SkillD
                 <span className="text-right font-medium text-slate-700">{skill?.status ?? "unknown"}</span>
               </div>
               {skill?.relation?.mode === "from" ? (
-                <div className="rounded border border-emerald-100 bg-emerald-50 px-2 py-2 text-xs text-emerald-700">
-                  <div className="font-medium">关联来源</div>
-                  <div className="mt-1 break-all font-mono text-[11px]">{skill.relation.fromPath}</div>
+                <div className={`rounded border px-2 py-2 text-xs ${selectedPath === RELATION_SOURCE_PREVIEW ? "border-emerald-300 bg-emerald-100 text-emerald-800" : "border-emerald-100 bg-emerald-50 text-emerald-700"}`}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPath(RELATION_SOURCE_PREVIEW)}
+                    className="block min-w-0 w-full cursor-pointer text-left"
+                  >
+                    <div className="font-medium">关联来源</div>
+                    <div className="mt-1 break-all font-mono text-[11px]">{skill.relation.fromPath}</div>
+                  </button>
                 </div>
               ) : null}
               {skill?.relation?.mode === "to" ? (
-                <div className="rounded border border-blue-100 bg-blue-50 px-2 py-2 text-xs text-blue-700">
+                <button
+                  type="button"
+                  onClick={() => setSelectedPath(RELATION_OUTPUT_PREVIEW)}
+                  className={`block w-full cursor-pointer rounded border px-2 py-2 text-left text-xs ${selectedPath === RELATION_OUTPUT_PREVIEW ? "border-blue-300 bg-blue-100 text-blue-800" : "border-blue-100 bg-blue-50 text-blue-700"}`}
+                >
                   <div className="font-medium">关联输出</div>
                   <div className="mt-1">{`${skill.relation.directories?.length ?? 0} 个目录，${skill.relation.files?.length ?? 0} 个文件`}</div>
-                </div>
+                </button>
               ) : null}
               {skill?.tags.length ? (
                 <div>
@@ -222,7 +282,7 @@ export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted }: SkillD
 
         <section className="flex min-w-0 flex-1 flex-col bg-white">
           <div className="flex items-center gap-4 border-b border-slate-200 bg-slate-100 px-3 py-1.5 font-mono text-xs text-slate-600">
-            <span className="flex items-center gap-1"><FileText className="h-3.5 w-3.5 text-blue-500" /> {previewPath}</span>
+            <span className="flex items-center gap-1"><FileText className="h-3.5 w-3.5 text-blue-500" /> {previewTitle}</span>
             <span className="text-slate-300">|</span>
             <span className={issueBadgeClass}>✓ {issueBadge}</span>
           </div>
@@ -231,7 +291,60 @@ export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted }: SkillD
             {previewError ? <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{previewError}</div> : null}
             {loading || !skill ? <p className="text-sm text-slate-500">加载中…</p> : null}
             {!loading && skill ? (
-              isSkillMarkdown ? (
+              isRelationSourcePreview ? (
+                <div className="space-y-4 text-sm text-slate-700">
+                  <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-600">关联来源</div>
+                        <div className="mt-3 break-all font-mono text-sm text-emerald-900">{skill.relation?.fromPath}</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void handleSyncSkill()}
+                        disabled={syncing}
+                        className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded border border-emerald-200 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+                        {syncing ? "同步中" : "同步"}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="text-sm font-medium text-slate-800">说明</div>
+                    <p className="mt-2 leading-6 text-slate-600">当前 Skill 是一个关联副本。点击这里的“同步”按钮后，会从来源目录覆盖同步到当前目录。</p>
+                  </div>
+                </div>
+              ) : isRelationOutputPreview ? (
+                <div className="space-y-4 text-sm text-slate-700">
+                  <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">关联输出概览</div>
+                    <div className="mt-3 text-sm text-blue-900">{`${skill.relation?.directories?.length ?? 0} 个目录，${skill.relation?.files?.length ?? 0} 个文件`}</div>
+                  </div>
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="rounded-xl border border-slate-200 bg-white p-4">
+                      <div className="mb-3 text-sm font-medium text-slate-800">关联文件</div>
+                      {(skill.relation?.files?.length ?? 0) > 0 ? (
+                        <ul className="space-y-2 text-sm text-slate-600">
+                          {(skill.relation?.files ?? []).map((file) => <li key={file} className="break-all font-mono text-xs">{file}</li>)}
+                        </ul>
+                      ) : (
+                        <p className="text-sm text-slate-500">暂无关联文件</p>
+                      )}
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-4">
+                      <div className="mb-3 text-sm font-medium text-slate-800">关联目录</div>
+                      {(skill.relation?.directories?.length ?? 0) > 0 ? (
+                        <ul className="space-y-2 text-sm text-slate-600">
+                          {(skill.relation?.directories ?? []).map((directory) => <li key={directory} className="break-all font-mono text-xs">{directory}</li>)}
+                        </ul>
+                      ) : (
+                        <p className="text-sm text-slate-500">暂无关联目录</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : isSkillMarkdown ? (
                 <div className="skm-prose max-w-none text-sm">
                   <h1>{skill.name}</h1>
                   <p>{displaySummary}</p>
@@ -243,27 +356,6 @@ export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted }: SkillD
                     <>
                       <h2>Instructions</h2>
                       <pre><code>{skill.bodyMarkdown}</code></pre>
-                    </>
-                  ) : null}
-
-                  {skill.relation?.mode === "from" ? (
-                    <>
-                      <h2>关联来源</h2>
-                      <pre><code>{skill.relation.fromPath}</code></pre>
-                    </>
-                  ) : null}
-
-                  {skill.relation?.mode === "to" ? (
-                    <>
-                      <h2>关联文件</h2>
-                      <ul>
-                        {(skill.relation.files ?? []).map((file) => <li key={file}>{file}</li>)}
-                      </ul>
-
-                      <h2>关联目录</h2>
-                      <ul>
-                        {(skill.relation.directories ?? []).map((directory) => <li key={directory}>{directory}</li>)}
-                      </ul>
                     </>
                   ) : null}
 
@@ -361,6 +453,21 @@ function findFirstFilePath(nodes: FileNode[]): string | null {
     return node.path;
   }
   return null;
+}
+
+function findFilePath(nodes: FileNode[], targetPath: string): boolean {
+  for (const node of nodes) {
+    if (node.isDir) {
+      if (findFilePath(node.children ?? [], targetPath)) {
+        return true;
+      }
+      continue;
+    }
+    if (node.path === targetPath) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function formatFrontmatter(skill: Skill) {

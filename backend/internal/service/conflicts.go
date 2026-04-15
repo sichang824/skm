@@ -23,6 +23,9 @@ func buildConflictGroups(skills []models.Skill) []ConflictGroup {
 	byPath := make(map[string][]models.Skill)
 
 	for _, skill := range skills {
+		if isAttachedSkill(skill) {
+			continue
+		}
 		byName[strings.ToLower(skill.Name)] = append(byName[strings.ToLower(skill.Name)], skill)
 		byPath[skill.RootPath] = append(byPath[skill.RootPath], skill)
 	}
@@ -166,4 +169,15 @@ func appendUnique(values []string, value string) []string {
 		}
 	}
 	return append(values, value)
+}
+
+func isAttachedSkill(skill models.Skill) bool {
+	if skill.Relation != nil && skill.Relation.Mode == "from" {
+		return true
+	}
+	state, err := readSkillRelationState(skill.RootPath)
+	if err != nil {
+		return false
+	}
+	return state.HasFrom
 }

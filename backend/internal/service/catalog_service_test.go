@@ -201,6 +201,101 @@ func TestDeleteSkillRemovesDirectory(t *testing.T) {
 	}
 }
 
+func TestSyncSkillRefreshesAttachedCopy(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	baseDir := t.TempDir()
+	sourceRoot := filepath.Join(baseDir, "source")
+	targetRoot := filepath.Join(baseDir, "target")
+	for _, root := range []string{sourceRoot, targetRoot} {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatalf("mkdir root %s: %v", root, err)
+		}
+	}
+
+	sourceProvider := createTestProvider(t, db, "Source Sync", sourceRoot)
+	targetProvider := createTestProvider(t, db, "Target Sync", targetRoot)
+	sourceSkill := createTestSkill(t, db, sourceProvider, filepath.Join(sourceRoot, "sync-skill"), "sync_skill")
+	targetSkill := createTestSkill(t, db, targetProvider, filepath.Join(targetRoot, "sync-skill"), "sync_skill")
+
+	if err := os.WriteFile(filepath.Join(sourceSkill.RootPath, "guide.md"), []byte("fresh content"), 0o644); err != nil {
+		t.Fatalf("write source guide.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(targetSkill.RootPath, "guide.md"), []byte("stale content"), 0o644); err != nil {
+		t.Fatalf("write target guide.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(targetSkill.RootPath, "obsolete.md"), []byte("obsolete"), 0o644); err != nil {
+		t.Fatalf("write target obsolete.md: %v", err)
+	}
+	if err := writeSkillToMetadata(sourceSkill.RootPath, skillToMetadata{Files: []string{"SKILL.md", "guide.md"}, Directories: []string{targetSkill.RootPath}}); err != nil {
+		t.Fatalf("write source .to: %v", err)
+	}
+	if err := writeSkillFromMetadata(targetSkill.RootPath, sourceSkill.RootPath); err != nil {
+		t.Fatalf("write target .from: %v", err)
+	}
+
+	result, err := service.SyncSkill(ctx, targetSkill.Zid)
+	if err != nil {
+		t.Fatalf("SyncSkill returned error: %v", err)
+	}
+	if !result.Synced {
+		t.Fatal("expected synced result to be true")
+	}
+	if result.SourcePath != sourceSkill.RootPath || result.TargetPath != targetSkill.RootPath {
+		t.Fatalf("unexpected sync paths: %#v", result)
+	}
+	guideContent, err := os.ReadFile(filepath.Join(targetSkill.RootPath, "guide.md"))
+	if err != nil {
+		t.Fatalf("read synced guide.md: %v", err)
+	}
+	if string(guideContent) != "fresh content" {
+		t.Fatalf("expected synced guide.md content, got %q", string(guideContent))
+	}
+	if _, err := os.Stat(filepath.Join(targetSkill.RootPath, "obsolete.md")); !os.IsNotExist(err) {
+		t.Fatalf("expected obsolete.md to be removed, stat err=%v", err)
+	}
+	fromContent, err := os.ReadFile(filepath.Join(targetSkill.RootPath, skillRelationFromFile))
+	if err != nil {
+		t.Fatalf("read target .from: %v", err)
+	}
+	if strings.TrimSpace(string(fromContent)) != sourceSkill.RootPath {
+		t.Fatalf("unexpected .from content: %q", string(fromContent))
+	}
+	toContent, err := os.ReadFile(filepath.Join(sourceSkill.RootPath, skillRelationToFile))
+	if err != nil {
+		t.Fatalf("read source .to: %v", err)
+	}
+	var metadata skillToMetadata
+	if err := json.Unmarshal(toContent, &metadata); err != nil {
+		t.Fatalf("unmarshal source .to: %v", err)
+	}
+	if len(metadata.Files) != 2 || metadata.Files[0] != "SKILL.md" || metadata.Files[1] != "guide.md" {
+		t.Fatalf("unexpected synced files metadata: %#v", metadata.Files)
+	}
+	if len(metadata.Directories) != 1 || metadata.Directories[0] != targetSkill.RootPath {
+		t.Fatalf("unexpected synced directories metadata: %#v", metadata.Directories)
+	}
+}
+
+func TestSyncSkillRejectsNonAttachedSkill(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	providerRoot := filepath.Join(t.TempDir(), "provider")
+	if err := os.MkdirAll(providerRoot, 0o755); err != nil {
+		t.Fatalf("mkdir provider root: %v", err)
+	}
+	provider := createTestProvider(t, db, "Sync Reject", providerRoot)
+	skill := createTestSkill(t, db, provider, filepath.Join(providerRoot, "plain-skill"), "plain_skill")
+
+	if _, err := service.SyncSkill(ctx, skill.Zid); err == nil {
+		t.Fatal("expected SyncSkill to reject non-attached skill")
+	}
+}
+
 func openCatalogTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "catalog-test.db")
