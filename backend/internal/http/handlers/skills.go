@@ -107,7 +107,15 @@ func (h *SkillHandler) Attach(c *gin.Context) {
 }
 
 func (h *SkillHandler) Delete(c *gin.Context) {
-	result, err := h.catalog.DeleteSkill(c.Request.Context(), c.Param("zid"))
+	var req service.SkillDeleteInput
+	if c.Request.Body != nil {
+		if err := c.ShouldBindJSON(&req); err != nil && !strings.Contains(strings.ToLower(err.Error()), "eof") {
+			writeServiceError(c, service.ErrInvalidInput)
+			return
+		}
+	}
+
+	result, err := h.catalog.DeleteSkill(c.Request.Context(), c.Param("zid"), req)
 	if err != nil {
 		writeServiceError(c, err)
 		return

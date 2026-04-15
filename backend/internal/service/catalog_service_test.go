@@ -253,7 +253,7 @@ func TestDeleteSkillRemovesDirectory(t *testing.T) {
 	provider := createTestProvider(t, db, "Delete Provider", providerRoot)
 	skill := createTestSkill(t, db, provider, filepath.Join(providerRoot, "delete-me"), "delete_me")
 
-	result, err := service.DeleteSkill(ctx, skill.Zid)
+	result, err := service.DeleteSkill(ctx, skill.Zid, SkillDeleteInput{})
 	if err != nil {
 		t.Fatalf("DeleteSkill returned error: %v", err)
 	}
@@ -262,6 +262,108 @@ func TestDeleteSkillRemovesDirectory(t *testing.T) {
 	}
 	if _, err := os.Stat(skill.RootPath); !os.IsNotExist(err) {
 		t.Fatalf("expected skill directory to be removed, stat err=%v", err)
+	}
+}
+
+func TestDeleteSkillAttachedCopyCleansSourceMetadata(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	baseDir := t.TempDir()
+	sourceRoot := filepath.Join(baseDir, "source")
+	targetRoot := filepath.Join(baseDir, "target")
+	for _, root := range []string{sourceRoot, targetRoot} {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatalf("mkdir root %s: %v", root, err)
+		}
+	}
+
+	sourceProvider := createTestProvider(t, db, "Delete Source", sourceRoot)
+	targetProvider := createTestProvider(t, db, "Delete Target", targetRoot)
+	sourceSkill := createTestSkill(t, db, sourceProvider, filepath.Join(sourceRoot, "shared-skill"), "shared_skill")
+	copySkill := createTestSkill(t, db, targetProvider, filepath.Join(targetRoot, "shared-skill"), "shared_skill_copy")
+
+	if err := writeSkillToMetadata(sourceSkill.RootPath, skillToMetadata{Directories: []string{copySkill.RootPath}, Include: []string{"SKILL.md"}, Exclude: []string{"bin/**"}}); err != nil {
+		t.Fatalf("write source .to: %v", err)
+	}
+	if err := writeSkillFromMetadata(copySkill.RootPath, sourceSkill.RootPath); err != nil {
+		t.Fatalf("write copy .from: %v", err)
+	}
+
+	result, err := service.DeleteSkill(ctx, copySkill.Zid, SkillDeleteInput{})
+	if err != nil {
+		t.Fatalf("DeleteSkill attached copy returned error: %v", err)
+	}
+	if result.DeleteMode != "attached-copy" {
+		t.Fatalf("unexpected delete mode: got %s", result.DeleteMode)
+	}
+	assertPathMissing(t, copySkill.RootPath)
+	toContent, err := os.ReadFile(filepath.Join(sourceSkill.RootPath, skillRelationToFile))
+	if err != nil {
+		t.Fatalf("read preserved source .to: %v", err)
+	}
+	var metadata skillToMetadata
+	if err := json.Unmarshal(toContent, &metadata); err != nil {
+		t.Fatalf("unmarshal preserved .to: %v", err)
+	}
+	if len(metadata.Directories) != 0 {
+		t.Fatalf("expected directories to be cleared, got %#v", metadata.Directories)
+	}
+	if len(metadata.Include) != 1 || metadata.Include[0] != "SKILL.md" {
+		t.Fatalf("expected include rule to be preserved, got %#v", metadata.Include)
+	}
+	if len(metadata.Exclude) != 1 || metadata.Exclude[0] != "bin/**" {
+		t.Fatalf("expected exclude rule to be preserved, got %#v", metadata.Exclude)
+	}
+}
+
+func TestDeleteSkillSourceWithCopiesRequiresForce(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	baseDir := t.TempDir()
+	sourceRoot := filepath.Join(baseDir, "source")
+	targetRoot := filepath.Join(baseDir, "target")
+	for _, root := range []string{sourceRoot, targetRoot} {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatalf("mkdir root %s: %v", root, err)
+		}
+	}
+
+	sourceProvider := createTestProvider(t, db, "Force Source", sourceRoot)
+	targetProvider := createTestProvider(t, db, "Force Target", targetRoot)
+	sourceSkill := createTestSkill(t, db, sourceProvider, filepath.Join(sourceRoot, "origin-skill"), "origin_skill")
+	copySkill := createTestSkill(t, db, targetProvider, filepath.Join(targetRoot, "origin-skill"), "origin_skill_copy")
+
+	if err := writeSkillToMetadata(sourceSkill.RootPath, skillToMetadata{Directories: []string{copySkill.RootPath}, Include: []string{"**"}}); err != nil {
+		t.Fatalf("write source .to: %v", err)
+	}
+	if err := writeSkillFromMetadata(copySkill.RootPath, sourceSkill.RootPath); err != nil {
+		t.Fatalf("write copy .from: %v", err)
+	}
+
+	if _, err := service.DeleteSkill(ctx, sourceSkill.Zid, SkillDeleteInput{}); err == nil {
+		t.Fatal("expected DeleteSkill to reject deleting a source skill with attached copies")
+	}
+	assertPathExists(t, sourceSkill.RootPath)
+
+	result, err := service.DeleteSkill(ctx, sourceSkill.Zid, SkillDeleteInput{Force: true})
+	if err != nil {
+		t.Fatalf("DeleteSkill forced source returned error: %v", err)
+	}
+	if !result.Forced || result.DeleteMode != "source-force" || result.CopyCount != 1 {
+		t.Fatalf("unexpected forced delete result: %#v", result)
+	}
+	assertPathMissing(t, sourceSkill.RootPath)
+	assertPathExists(t, copySkill.RootPath)
+	fromContent, err := os.ReadFile(filepath.Join(copySkill.RootPath, skillRelationFromFile))
+	if err != nil {
+		t.Fatalf("read copy .from: %v", err)
+	}
+	if strings.TrimSpace(string(fromContent)) != sourceSkill.RootPath {
+		t.Fatalf("unexpected .from content after force delete: %q", string(fromContent))
 	}
 }
 

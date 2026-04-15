@@ -133,7 +133,14 @@ type SkillDeleteResult struct {
 	Provider    models.Provider `json:"provider"`
 	DeletedPath string          `json:"deletedPath"`
 	Deleted     bool            `json:"deleted"`
+	Forced      bool            `json:"forced"`
+	DeleteMode  string          `json:"deleteMode"`
+	CopyCount   int             `json:"copyCount,omitempty"`
 	Job         *models.ScanJob `json:"job,omitempty"`
+}
+
+type SkillDeleteInput struct {
+	Force bool `json:"force"`
 }
 
 type SkillSyncResult struct {
@@ -429,7 +436,7 @@ func (s *CatalogService) AttachSkill(ctx context.Context, skillZid string, input
 	}, nil
 }
 
-func (s *CatalogService) DeleteSkill(ctx context.Context, skillZid string) (*SkillDeleteResult, error) {
+func (s *CatalogService) DeleteSkill(ctx context.Context, skillZid string, input SkillDeleteInput) (*SkillDeleteResult, error) {
 	skill, err := s.GetSkill(ctx, skillZid)
 	if err != nil {
 		return nil, err
@@ -437,11 +444,33 @@ func (s *CatalogService) DeleteSkill(ctx context.Context, skillZid string) (*Ski
 
 	deletePath := filepath.Clean(skill.RootPath)
 	providerRoot := filepath.Clean(skill.Provider.RootPath)
+	relation, err := readSkillRelationState(deletePath)
+	if err != nil {
+		return nil, err
+	}
 	if deletePath == providerRoot {
 		return nil, fmt.Errorf("%w: deleting provider root is not allowed", ErrInvalidInput)
 	}
 	if !pathWithinRoot(providerRoot, deletePath) {
 		return nil, fmt.Errorf("%w: skill rootPath is outside provider root", ErrInvalidInput)
+	}
+	deleteMode := "plain"
+	copyCount := 0
+	if relation.HasFrom {
+		deleteMode = "attached-copy"
+		if err := removeDirectoryFromSourceRelation(relation.FromPath, deletePath); err != nil {
+			return nil, err
+		}
+	} else if relation.HasTo {
+		copyCount = len(relation.To.Directories)
+		if copyCount > 0 && !input.Force {
+			return nil, fmt.Errorf("%w: skill has %d attached copies; use force delete to remove the source only", ErrInvalidInput, copyCount)
+		}
+		if copyCount > 0 {
+			deleteMode = "source-force"
+		} else {
+			deleteMode = "source"
+		}
 	}
 	if err := os.RemoveAll(deletePath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
@@ -452,6 +481,9 @@ func (s *CatalogService) DeleteSkill(ctx context.Context, skillZid string) (*Ski
 		Provider:    skill.Provider,
 		DeletedPath: deletePath,
 		Deleted:     true,
+		Forced:      input.Force,
+		DeleteMode:  deleteMode,
+		CopyCount:   copyCount,
 	}, nil
 }
 
@@ -1081,6 +1113,32 @@ func updateRelationsAfterMove(sourcePath, targetPath string) error {
 	}
 	sourceState.To.Directories = directories
 	return writeSkillToMetadata(state.FromPath, sourceState.To)
+}
+
+func removeDirectoryFromSourceRelation(sourcePath, directoryPath string) error {
+	sourcePath = filepath.Clean(strings.TrimSpace(sourcePath))
+	if sourcePath == "" {
+		return nil
+	}
+	state, err := readSkillRelationState(sourcePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if !state.HasTo {
+		return nil
+	}
+	filtered := make([]string, 0, len(state.To.Directories))
+	for _, directory := range state.To.Directories {
+		if filepath.Clean(directory) == filepath.Clean(directoryPath) {
+			continue
+		}
+		filtered = append(filtered, directory)
+	}
+	state.To.Directories = filtered
+	return writeSkillToMetadata(sourcePath, state.To)
 }
 
 func uniqueSortedStrings(values []string) []string {

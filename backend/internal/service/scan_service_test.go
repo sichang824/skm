@@ -175,3 +175,79 @@ func TestPersistScanDedupesDuplicateDiscoveredRoots(t *testing.T) {
 		t.Fatalf("expected total skills=1 after re-persist, got %d", total)
 	}
 }
+
+func TestPersistScanRevivesSoftDeletedSkill(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewScanService(db)
+	provider := createTestProvider(t, db, "Agents Global", t.TempDir())
+	providerID := provider.ID
+	job := &models.ScanJob{
+		ProviderID: &providerID,
+		Scope:      "provider",
+		StartedAt:  time.Now(),
+		Status:     "running",
+		LogLines:   []string{},
+	}
+	if err := db.Create(job).Error; err != nil {
+		t.Fatalf("create scan job: %v", err)
+	}
+
+	rootPath := filepath.Join(provider.RootPath, "skill-jira")
+	skillMdPath := filepath.Join(rootPath, "SKILL.md")
+	modifiedAt := time.Now()
+	existing := &models.Skill{
+		ProviderID:     provider.ID,
+		Name:           "skill-jira",
+		Slug:           "skill-jira",
+		DirectoryName:  "skill-jira",
+		RootPath:       rootPath,
+		SkillMdPath:    skillMdPath,
+		Status:         "ready",
+		Tags:           []string{},
+		IssueCodes:     []string{},
+		ConflictKinds:  []string{},
+		LastScannedAt:  modifiedAt,
+		LastModifiedAt: &modifiedAt,
+	}
+	if err := db.Create(existing).Error; err != nil {
+		t.Fatalf("create existing skill: %v", err)
+	}
+	if err := db.Delete(existing).Error; err != nil {
+		t.Fatalf("soft delete existing skill: %v", err)
+	}
+
+	discovered := discoveredSkill{
+		RootPath:       rootPath,
+		SkillMdPath:    skillMdPath,
+		DirectoryName:  "skill-jira",
+		Name:           "skill-jira",
+		Slug:           "skill-jira",
+		Status:         "ready",
+		ContentHash:    "hash-1",
+		LastModifiedAt: &modifiedAt,
+		IssueCodes:     []string{},
+		Tags:           []string{},
+	}
+
+	_, addedCount, removedCount, changedCount, invalidCount, err := service.persistScan(context.Background(), provider, job, []discoveredSkill{discovered}, nil)
+	if err != nil {
+		t.Fatalf("persistScan returned error: %v", err)
+	}
+	if addedCount != 1 || removedCount != 0 || changedCount != 0 || invalidCount != 0 {
+		t.Fatalf("unexpected counters added=%d removed=%d changed=%d invalid=%d", addedCount, removedCount, changedCount, invalidCount)
+	}
+
+	var skills []models.Skill
+	if err := db.Unscoped().Where("provider_id = ?", provider.ID).Find(&skills).Error; err != nil {
+		t.Fatalf("load skills: %v", err)
+	}
+	if len(skills) != 1 {
+		t.Fatalf("expected 1 skill record after revive, got %d", len(skills))
+	}
+	if skills[0].DeletedAt.Valid {
+		t.Fatal("expected revived skill to be active, got soft-deleted row")
+	}
+	if skills[0].ID != existing.ID {
+		t.Fatalf("expected revive to reuse existing row id %d, got %d", existing.ID, skills[0].ID)
+	}
+}

@@ -153,7 +153,7 @@ func (s *ScanService) persistScan(ctx context.Context, provider *models.Provider
 
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var existing []models.Skill
-		if err := tx.Where("provider_id = ?", provider.ID).Find(&existing).Error; err != nil {
+		if err := tx.Unscoped().Where("provider_id = ?", provider.ID).Find(&existing).Error; err != nil {
 			return fmt.Errorf("load existing skills: %w", err)
 		}
 		existingByRoot := make(map[string]models.Skill, len(existing))
@@ -168,6 +168,8 @@ func (s *ScanService) persistScan(ctx context.Context, provider *models.Provider
 			record, ok := existingByRoot[discovered.RootPath]
 			if !ok {
 				record = models.Skill{ProviderID: provider.ID}
+				addedCount++
+			} else if record.DeletedAt.Valid {
 				addedCount++
 			} else if skillChanged(record, discovered) {
 				changedCount++
@@ -188,10 +190,11 @@ func (s *ScanService) persistScan(ctx context.Context, provider *models.Provider
 			record.BodyMarkdown = discovered.BodyMarkdown
 			record.Frontmatter = discovered.Frontmatter
 			record.IssueCodes = discovered.IssueCodes
+			record.DeletedAt = gorm.DeletedAt{}
 			if slices.Contains(discovered.IssueCodes, "frontmatter_parse_failed") || slices.Contains(discovered.IssueCodes, "missing_name") || slices.Contains(discovered.IssueCodes, "name_directory_mismatch") {
 				invalidCount++
 			}
-			if err := tx.Save(&record).Error; err != nil {
+			if err := tx.Unscoped().Save(&record).Error; err != nil {
 				return wrapDiscoveredSkillError(discovered, "save skill record", err)
 			}
 			existingByRoot[record.RootPath] = record
@@ -200,7 +203,7 @@ func (s *ScanService) persistScan(ctx context.Context, provider *models.Provider
 
 		for _, skill := range existing {
 			if !slices.Contains(discoveredRoots, skill.RootPath) {
-				if err := tx.Delete(&skill).Error; err != nil {
+				if err := tx.Unscoped().Delete(&skill).Error; err != nil {
 					return fmt.Errorf("delete missing skill root=%s: %w", skill.RootPath, err)
 				}
 				removedCount++

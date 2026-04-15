@@ -131,7 +131,14 @@ export interface SkillDeleteResult {
   provider: Provider;
   deletedPath: string;
   deleted: boolean;
+  forced: boolean;
+  deleteMode: string;
+  copyCount?: number;
   job?: ScanJob;
+}
+
+export interface SkillDeleteInput {
+  force?: boolean;
 }
 
 export interface SkillSyncResult {
@@ -230,7 +237,10 @@ export const api = {
   getSkills: (query: SkillQuery = {}) =>
     request<Skill[]>(`/api/skills${toQueryString(query)}`),
   getSkill: (zid: string) => request<Skill>(`/api/skills/${zid}`),
-  deleteSkill: (zid: string) => request<SkillDeleteResult>(`/api/skills/${zid}`, { method: "DELETE" }),
+  deleteSkill: (zid: string, input: SkillDeleteInput = {}) => request<SkillDeleteResult>(`/api/skills/${zid}`, {
+    method: "DELETE",
+    body: JSON.stringify(input),
+  }),
   syncSkill: (zid: string) => request<SkillSyncResult>(`/api/skills/${zid}/sync`, { method: "POST" }),
   attachSkill: (zid: string, input: SkillAttachInput) =>
     request<SkillAttachResult>(`/api/skills/${zid}/attach`, {

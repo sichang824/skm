@@ -138,10 +138,17 @@ export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted, onSynced
     if (!zid || !skill) {
       return;
     }
+    const attachedCopyCount = skill.relation?.mode === "to" ? (skill.relation.directories?.length ?? 0) : 0;
+    const forceDelete = attachedCopyCount > 0;
     setDeleting(true);
     try {
-      await api.deleteSkill(zid);
-      toast.success(`${skill.name} 已删除`);
+      const result = await api.deleteSkill(zid, { force: forceDelete });
+      const successMessage = result.deleteMode === "attached-copy"
+        ? `${skill.name} 已删除，关联来源已清理`
+        : result.forced
+          ? `${skill.name} 已强制删除，现有副本未联动清理`
+          : `${skill.name} 已删除`;
+      toast.success(successMessage);
       setDeleteDialogOpen(false);
       onDeleted?.();
       onOpenChange(false);
@@ -183,6 +190,8 @@ export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted, onSynced
     : isRelationOutputPreview
       ? "关联输出"
       : previewPath;
+  const attachedCopyCount = skill?.relation?.mode === "to" ? (skill.relation.directories?.length ?? 0) : 0;
+  const isAttachedCopy = skill?.relation?.mode === "from";
   const issueBadge = skill?.status === "invalid" ? "异常" : skill?.isConflict ? "存在冲突" : "Frontmatter Parsed";
   const issueBadgeClass = skill?.status === "invalid"
     ? "bg-red-50 text-red-700"
@@ -392,7 +401,11 @@ export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted, onSynced
             <DialogHeader className="gap-2 text-left">
               <DialogTitle className="text-xl font-semibold text-slate-900">确认删除 Skill</DialogTitle>
               <DialogDescription className="text-sm leading-6 text-red-600">
-                该操作会直接删除 Skill 目录。
+                {attachedCopyCount > 0
+                  ? `当前源 Skill 存在 ${attachedCopyCount} 个副本。若继续强制删除，只会删除源目录，不会逐个清理副本中的 .from。`
+                  : isAttachedCopy
+                    ? "该操作会删除当前关联副本目录，并同步清理来源 Skill 的 .to 目录记录。"
+                    : "该操作会直接删除 Skill 目录。"}
                 {skill ? ` 删除后将移除 ${skill.name} 对应目录：${skill.rootPath}` : ""}
               </DialogDescription>
             </DialogHeader>
@@ -412,7 +425,7 @@ export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted, onSynced
               disabled={deleting}
               className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {deleting ? "删除中…" : "确认删除目录"}
+              {deleting ? "删除中…" : attachedCopyCount > 0 ? "强制删除源 Skill" : "确认删除目录"}
             </button>
           </DialogFooter>
         </DialogContent>
