@@ -33,4 +33,5 @@ type Skill struct {
 	IsConflict     bool           `gorm:"index;not null;default:false" json:"isConflict"`
 	IsEffective    bool           `gorm:"index;not null;default:true" json:"isEffective"`
 	Relation       *SkillRelation `gorm:"-" json:"relation,omitempty"`
+	RelatedSkills  []Skill        `gorm:"-" json:"relatedSkills,omitempty"`
 }

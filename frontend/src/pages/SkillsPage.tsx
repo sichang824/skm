@@ -1,5 +1,5 @@
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
-import { ArrowRightLeft, Copy, FolderInput, FolderTree, Search } from "lucide-react";
+import { Fragment, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { ArrowRightLeft, ChevronDown, ChevronRight, Copy, FolderInput, FolderTree, Search } from "lucide-react";
 import { useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { SkillDetailDialog } from "../components/skm/SkillDetailDialog";
@@ -9,6 +9,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { api, type Provider, type Skill } from "../lib/api";
 
 type ProviderAttachMode = "move" | "attach";
+
+type SkillGroup = {
+  skill: Skill;
+  relatedSkills: Skill[];
+  autoExpand: boolean;
+};
 
 export function SkillsPage() {
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -25,6 +31,7 @@ export function SkillsPage() {
   const [attachMode, setAttachMode] = useState<ProviderAttachMode>("move");
   const [attachDialogOpen, setAttachDialogOpen] = useState(false);
   const [attachSubmitting, setAttachSubmitting] = useState(false);
+  const [expandedSkillZids, setExpandedSkillZids] = useState<string[]>([]);
   const { refreshKey } = useOutletContext<ShellOutletContext>();
   const { zid } = useParams();
   const navigate = useNavigate();
@@ -36,7 +43,7 @@ export function SkillsPage() {
     setError("");
     try {
       const [skillData, providerData] = await Promise.all([
-        api.getSkills({ sort: "lastScanned" }),
+        api.getSkills({ sort: "lastScanned", grouped: true }),
         api.getProviders(),
       ]);
       setSkills(skillData);
@@ -48,9 +55,11 @@ export function SkillsPage() {
     }
   }
 
+  const allSkills = useMemo(() => flattenSkills(skills), [skills]);
+
   const skillCountByProvider = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const skill of skills) {
+    for (const skill of allSkills) {
       const key = skill.provider?.zid;
       if (!key) {
         continue;
@@ -58,7 +67,7 @@ export function SkillsPage() {
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
     return counts;
-  }, [skills]);
+  }, [allSkills]);
 
   const selectedProvider = useMemo(
     () => providers.find((item) => item.zid === selectedProviderZid) ?? null,
@@ -73,7 +82,7 @@ export function SkillsPage() {
       setError("");
       try {
         const [skillData, providerData] = await Promise.all([
-          api.getSkills({ sort: "lastScanned" }),
+          api.getSkills({ sort: "lastScanned", grouped: true }),
           api.getProviders(),
         ]);
         if (!active) {
@@ -105,24 +114,30 @@ export function SkillsPage() {
     }
   }, [providers, selectedProviderZid]);
 
-  const filteredSkills = useMemo(() => {
-    return skills.filter((skill) => {
-      const matchesSearch = deferredQuery.trim() === ""
-        ? true
-        : [skill.name, skill.summary, skill.provider?.name, skill.category, skill.directoryName]
-          .filter(Boolean)
-          .some((value) => String(value).toLowerCase().includes(deferredQuery.toLowerCase()));
-      const matchesProvider = selectedProviderZid ? skill.provider?.zid === selectedProviderZid : true;
-      const matchesStatus = status === ""
-        ? true
-        : status === "Valid"
-          ? skill.status === "ready" && !skill.isConflict
-          : status === "Conflict"
-            ? skill.isConflict
-            : skill.status === "invalid";
-      return matchesSearch && matchesProvider && matchesStatus;
-    });
-  }, [deferredQuery, selectedProviderZid, skills, status]);
+  const hasActiveFilters = deferredQuery.trim() !== "" || selectedProviderZid !== "" || status !== "";
+
+  const filteredSkillGroups = useMemo(() => {
+    return skills.reduce<SkillGroup[]>((result, skill) => {
+      const relatedSkills = skill.relatedSkills ?? [];
+      const parentMatches = matchesSkillFilters(skill, deferredQuery, selectedProviderZid, status);
+      const matchedChildren = relatedSkills.filter((child) => matchesSkillFilters(child, deferredQuery, selectedProviderZid, status));
+      if (!parentMatches && matchedChildren.length === 0) {
+        return result;
+      }
+      const visibleChildren = hasActiveFilters ? matchedChildren : relatedSkills;
+      result.push({
+        skill,
+        relatedSkills: visibleChildren,
+        autoExpand: visibleChildren.length > 0 && (!parentMatches || hasActiveFilters),
+      });
+      return result;
+    }, []);
+  }, [deferredQuery, hasActiveFilters, selectedProviderZid, skills, status]);
+
+  const visibleSkillCount = useMemo(
+    () => filteredSkillGroups.reduce((count, group) => count + 1 + group.relatedSkills.length, 0),
+    [filteredSkillGroups],
+  );
 
   function resetDragState() {
     setDraggingSkillZid(null);
@@ -155,7 +170,7 @@ export function SkillsPage() {
 
   function handleProviderDrop(event: React.DragEvent<HTMLButtonElement>, providerItem: Provider) {
     event.preventDefault();
-    const draggedSkill = skills.find((item) => item.zid === draggingSkillZid);
+    const draggedSkill = allSkills.find((item) => item.zid === draggingSkillZid);
     resetDragState();
     if (!draggedSkill) {
       return;
@@ -168,6 +183,10 @@ export function SkillsPage() {
     setPendingDropProvider(providerItem);
     setAttachMode("move");
     setAttachDialogOpen(true);
+  }
+
+  function toggleExpandedSkill(zid: string) {
+    setExpandedSkillZids((current) => (current.includes(zid) ? current.filter((item) => item !== zid) : [...current, zid]));
   }
 
   function closeAttachDialog(open: boolean) {
@@ -208,7 +227,7 @@ export function SkillsPage() {
         <div>
           <h2 className="skm-section-title">Skills 目录</h2>
           <p className="mt-1 text-sm text-slate-500">
-            {selectedProvider ? `${selectedProvider.name} · ${skillCountByProvider.get(selectedProvider.zid) ?? 0} skills` : `全部 Providers · ${skills.length} skills`}
+            {selectedProvider ? `${selectedProvider.name} · ${skillCountByProvider.get(selectedProvider.zid) ?? 0} skills` : `全部 Providers · ${allSkills.length} skills`}
           </p>
         </div>
 
@@ -260,7 +279,7 @@ export function SkillsPage() {
                       className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition ${selectedProviderZid === "" ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200" : "text-slate-600 hover:bg-slate-50 hover:text-slate-800"}`}
                     >
                       <span className="truncate text-sm font-medium">全部 Skills</span>
-                      <span className={`rounded-full px-2 py-0.5 text-xs ${selectedProviderZid === "" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-500"}`}>{skills.length}</span>
+                      <span className={`rounded-full px-2 py-0.5 text-xs ${selectedProviderZid === "" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-500"}`}>{allSkills.length}</span>
                     </button>
                     {providers.map((item) => {
                       const isActive = item.zid === selectedProviderZid;
@@ -296,7 +315,7 @@ export function SkillsPage() {
               <div>
                 <h3 className="text-sm font-semibold text-slate-800">{selectedProvider ? `${selectedProvider.name} 的 Skills` : "全部 Skills"}</h3>
                 <p className="mt-1 text-xs text-slate-500">
-                  {filteredSkills.length} 条结果
+                  {visibleSkillCount} 条结果
                   {status ? ` · 状态 ${status}` : ""}
                   {deferredQuery.trim() ? ` · 搜索 “${deferredQuery.trim()}”` : ""}
                 </p>
@@ -321,35 +340,88 @@ export function SkillsPage() {
                       <td colSpan={5} className="px-4 py-6 text-slate-400">加载中…</td>
                     </tr>
                   ))
-                ) : filteredSkills.map((skill) => (
-                  <tr
-                    key={skill.zid}
-                    draggable
-                    onDragStart={() => handleSkillDragStart(skill)}
-                    onDragEnd={handleSkillDragEnd}
-                    className={`group cursor-pointer transition-colors hover:bg-blue-50 ${draggingSkillZid === skill.zid ? "bg-blue-50/70 opacity-70" : ""}`}
-                    onClick={() => navigate(`/skills/${skill.zid}`)}
-                  >
-                    <td className="px-4 py-3 font-medium text-slate-800">
-                      <div className="flex items-center gap-2">
-                        <span className="text-blue-600">◈</span>
-                        <div>
-                          <div>{skill.name}</div>
-                          <div className="mt-0.5 max-w-md truncate text-xs font-normal text-slate-500">{skill.summary || skill.rootPath}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">{skill.provider?.name ?? "Unknown"}</td>
-                    <td className="px-4 py-3">
-                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">{skill.category || "Uncategorized"}</span>
-                    </td>
-                    <td className="px-4 py-3">{renderSkillStatus(skill)}</td>
-                    <td className="px-4 py-3 text-right opacity-0 transition-opacity group-hover:opacity-100">
-                      <button type="button" onClick={(event) => { event.stopPropagation(); navigate(`/skills/${skill.zid}`); }} className="text-sm font-medium text-blue-600 hover:text-blue-700">查看详情</button>
-                    </td>
-                  </tr>
-                ))}
-                {!loading && filteredSkills.length === 0 ? (
+                ) : filteredSkillGroups.map(({ skill, relatedSkills, autoExpand }) => {
+                  const isExpanded = relatedSkills.length > 0 && (autoExpand || expandedSkillZids.includes(skill.zid));
+                  return (
+                    <Fragment key={skill.zid}>
+                      <tr
+                        draggable
+                        onDragStart={() => handleSkillDragStart(skill)}
+                        onDragEnd={handleSkillDragEnd}
+                        className={`group cursor-pointer transition-colors hover:bg-blue-50 ${draggingSkillZid === skill.zid ? "bg-blue-50/70 opacity-70" : ""}`}
+                        onClick={() => navigate(`/skills/${skill.zid}`)}
+                      >
+                        <td className="px-4 py-3 font-medium text-slate-800">
+                          <div className="flex items-center gap-2">
+                            {relatedSkills.length > 0 ? (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  toggleExpandedSkill(skill.zid);
+                                }}
+                                className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                                title={isExpanded ? "收起关联 Skills" : "展开关联 Skills"}
+                              >
+                                {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                              </button>
+                            ) : <span className="inline-flex h-6 w-6 shrink-0" />}
+                            <span className="text-blue-600">◈</span>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span>{skill.name}</span>
+                                {skill.relation?.mode === "to" ? <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">关联源</span> : null}
+                                {relatedSkills.length > 0 ? <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">{relatedSkills.length} 个关联副本</span> : null}
+                              </div>
+                              <div className="mt-0.5 max-w-md truncate text-xs font-normal text-slate-500">{skill.summary || skill.rootPath}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">{skill.provider?.name ?? "Unknown"}</td>
+                        <td className="px-4 py-3">
+                          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">{skill.category || "Uncategorized"}</span>
+                        </td>
+                        <td className="px-4 py-3">{renderSkillStatus(skill)}</td>
+                        <td className="px-4 py-3 text-right opacity-0 transition-opacity group-hover:opacity-100">
+                          <button type="button" onClick={(event) => { event.stopPropagation(); navigate(`/skills/${skill.zid}`); }} className="cursor-pointer text-sm font-medium text-blue-600 hover:text-blue-700">查看详情</button>
+                        </td>
+                      </tr>
+                      {isExpanded ? relatedSkills.map((relatedSkill) => (
+                        <tr
+                          key={relatedSkill.zid}
+                          draggable
+                          onDragStart={() => handleSkillDragStart(relatedSkill)}
+                          onDragEnd={handleSkillDragEnd}
+                          className={`group cursor-pointer bg-slate-50/70 transition-colors hover:bg-emerald-50 ${draggingSkillZid === relatedSkill.zid ? "bg-emerald-50 opacity-70" : ""}`}
+                          onClick={() => navigate(`/skills/${relatedSkill.zid}`)}
+                        >
+                          <td className="px-4 py-3 font-medium text-slate-700">
+                            <div className="flex items-center gap-2 pl-8">
+                              <span className="text-slate-300">└</span>
+                              <span className="text-emerald-600">◈</span>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span>{relatedSkill.name}</span>
+                                  <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">关联副本</span>
+                                </div>
+                                <div className="mt-0.5 max-w-md truncate text-xs font-normal text-slate-500">{relatedSkill.summary || relatedSkill.rootPath}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-slate-600">{relatedSkill.provider?.name ?? "Unknown"}</td>
+                          <td className="px-4 py-3">
+                            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">{relatedSkill.category || "Uncategorized"}</span>
+                          </td>
+                          <td className="px-4 py-3">{renderSkillStatus(relatedSkill)}</td>
+                          <td className="px-4 py-3 text-right opacity-0 transition-opacity group-hover:opacity-100">
+                            <button type="button" onClick={(event) => { event.stopPropagation(); navigate(`/skills/${relatedSkill.zid}`); }} className="cursor-pointer text-sm font-medium text-blue-600 hover:text-blue-700">查看详情</button>
+                          </td>
+                        </tr>
+                      )) : null}
+                    </Fragment>
+                  );
+                })}
+                {!loading && filteredSkillGroups.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="px-4 py-12 text-center text-slate-500">没有找到匹配的 Skills</td>
                   </tr>
@@ -479,4 +551,25 @@ function renderSkillStatus(skill: Skill) {
     return <span className="inline-flex items-center rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">Conflict</span>;
   }
   return <span className="inline-flex items-center rounded-md border border-green-200 bg-green-50 px-2 py-1 text-xs font-medium text-green-700">Active</span>;
+}
+
+function flattenSkills(skills: Skill[]): Skill[] {
+  return skills.flatMap((skill) => [skill, ...flattenSkills(skill.relatedSkills ?? [])]);
+}
+
+function matchesSkillFilters(skill: Skill, query: string, providerZid: string, status: string) {
+  const matchesSearch = query.trim() === ""
+    ? true
+    : [skill.name, skill.summary, skill.provider?.name, skill.category, skill.directoryName]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(query.toLowerCase()));
+  const matchesProvider = providerZid ? skill.provider?.zid === providerZid : true;
+  const matchesStatus = status === ""
+    ? true
+    : status === "Valid"
+      ? skill.status === "ready" && !skill.isConflict
+      : status === "Conflict"
+        ? skill.isConflict
+        : skill.status === "invalid";
+  return matchesSearch && matchesProvider && matchesStatus;
 }

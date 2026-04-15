@@ -75,6 +75,7 @@ type SkillListFilters struct {
 	Status   string
 	Conflict *bool
 	Sort     string
+	Grouped  bool
 }
 
 type IssueListFilters struct {
@@ -280,6 +281,9 @@ func (s *CatalogService) ListSkills(ctx context.Context, filters SkillListFilter
 	}
 	for index := range skills {
 		skills[index].Relation = readSkillRelationForDisplay(skills[index].RootPath)
+	}
+	if filters.Grouped {
+		return groupSkillsForList(skills), nil
 	}
 	return skills, nil
 }
@@ -921,6 +925,41 @@ func readSkillRelationForDisplay(rootPath string) *models.SkillRelation {
 		return &models.SkillRelation{Mode: "to", Files: append([]string{}, state.To.Files...), Directories: append([]string{}, state.To.Directories...)}
 	}
 	return nil
+}
+
+func groupSkillsForList(skills []models.Skill) []models.Skill {
+	indicesByRoot := make(map[string]int, len(skills))
+	for index := range skills {
+		skills[index].RelatedSkills = nil
+		indicesByRoot[filepath.Clean(skills[index].RootPath)] = index
+	}
+
+	nested := make(map[int]struct{}, len(skills))
+	for index := range skills {
+		relation := skills[index].Relation
+		if relation == nil || relation.Mode != "from" {
+			continue
+		}
+		parentIndex, ok := indicesByRoot[filepath.Clean(strings.TrimSpace(relation.FromPath))]
+		if !ok {
+			continue
+		}
+		parentRelation := skills[parentIndex].Relation
+		if parentRelation == nil || parentRelation.Mode != "to" {
+			continue
+		}
+		skills[parentIndex].RelatedSkills = append(skills[parentIndex].RelatedSkills, skills[index])
+		nested[index] = struct{}{}
+	}
+
+	grouped := make([]models.Skill, 0, len(skills))
+	for index := range skills {
+		if _, isNested := nested[index]; isNested {
+			continue
+		}
+		grouped = append(grouped, skills[index])
+	}
+	return grouped
 }
 
 func readSkillRelationState(rootPath string) (skillRelationState, error) {

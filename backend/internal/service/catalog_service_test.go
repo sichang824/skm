@@ -296,6 +296,73 @@ func TestSyncSkillRejectsNonAttachedSkill(t *testing.T) {
 	}
 }
 
+func TestListSkillsGroupedByRelation(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	baseDir := t.TempDir()
+	sourceRoot := filepath.Join(baseDir, "source")
+	targetRoot := filepath.Join(baseDir, "target")
+	extraRoot := filepath.Join(baseDir, "extra")
+	for _, root := range []string{sourceRoot, targetRoot, extraRoot} {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatalf("mkdir root %s: %v", root, err)
+		}
+	}
+
+	sourceProvider := createTestProvider(t, db, "Source Group", sourceRoot)
+	targetProvider := createTestProvider(t, db, "Target Group", targetRoot)
+	extraProvider := createTestProvider(t, db, "Extra Group", extraRoot)
+
+	toSkill := createTestSkill(t, db, sourceProvider, filepath.Join(sourceRoot, "grouped-skill"), "grouped_skill")
+	fromSkill := createTestSkill(t, db, targetProvider, filepath.Join(targetRoot, "grouped-skill"), "grouped_skill_copy")
+	plainSkill := createTestSkill(t, db, extraProvider, filepath.Join(extraRoot, "plain-skill"), "plain_skill")
+
+	if err := writeSkillToMetadata(toSkill.RootPath, skillToMetadata{Files: []string{"SKILL.md"}, Directories: []string{fromSkill.RootPath}}); err != nil {
+		t.Fatalf("write source .to: %v", err)
+	}
+	if err := writeSkillFromMetadata(fromSkill.RootPath, toSkill.RootPath); err != nil {
+		t.Fatalf("write target .from: %v", err)
+	}
+
+	skills, err := service.ListSkills(ctx, SkillListFilters{Sort: "name", Grouped: true})
+	if err != nil {
+		t.Fatalf("ListSkills grouped returned error: %v", err)
+	}
+	if len(skills) != 2 {
+		t.Fatalf("expected 2 top-level skills, got %d", len(skills))
+	}
+
+	var groupedSkill *models.Skill
+	for index := range skills {
+		if skills[index].Zid == toSkill.Zid {
+			groupedSkill = &skills[index]
+		}
+		if skills[index].Zid == fromSkill.Zid {
+			t.Fatal("expected attached from skill to be nested instead of top-level")
+		}
+	}
+	if groupedSkill == nil {
+		t.Fatal("expected source to skill to remain in top-level list")
+	}
+	if groupedSkill.Relation == nil || groupedSkill.Relation.Mode != "to" {
+		t.Fatalf("expected grouped source skill to keep to relation, got %#v", groupedSkill.Relation)
+	}
+	if len(groupedSkill.RelatedSkills) != 1 {
+		t.Fatalf("expected 1 related skill, got %d", len(groupedSkill.RelatedSkills))
+	}
+	if groupedSkill.RelatedSkills[0].Zid != fromSkill.Zid {
+		t.Fatalf("unexpected nested skill zid: got %s want %s", groupedSkill.RelatedSkills[0].Zid, fromSkill.Zid)
+	}
+	if groupedSkill.RelatedSkills[0].Relation == nil || groupedSkill.RelatedSkills[0].Relation.Mode != "from" {
+		t.Fatalf("expected nested skill to keep from relation, got %#v", groupedSkill.RelatedSkills[0].Relation)
+	}
+	if skills[0].Zid != plainSkill.Zid && skills[1].Zid != plainSkill.Zid {
+		t.Fatal("expected unrelated skill to remain top-level")
+	}
+}
+
 func openCatalogTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "catalog-test.db")

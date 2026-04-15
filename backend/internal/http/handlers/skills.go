@@ -23,6 +23,10 @@ func (h *SkillHandler) List(c *gin.Context) {
 		parsed := strings.EqualFold(raw, "true") || raw == "1"
 		conflictFilter = &parsed
 	}
+	grouped := false
+	if raw := strings.TrimSpace(c.Query("grouped")); raw != "" {
+		grouped = strings.EqualFold(raw, "true") || raw == "1"
+	}
 	filters := service.SkillListFilters{
 		Query:    c.Query("q"),
 		Provider: c.Query("provider"),
@@ -31,6 +35,7 @@ func (h *SkillHandler) List(c *gin.Context) {
 		Status:   c.Query("status"),
 		Conflict: conflictFilter,
 		Sort:     c.Query("sort"),
+		Grouped:  grouped,
 	}
 	skills, err := h.catalog.ListSkills(c.Request.Context(), filters)
 	if err != nil {

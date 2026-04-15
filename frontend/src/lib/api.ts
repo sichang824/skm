@@ -50,6 +50,7 @@ export interface Skill {
   isEffective: boolean;
   provider?: Provider;
   relation?: SkillRelation;
+  relatedSkills?: Skill[];
 }
 
 export interface SkillRelation {
@@ -164,6 +165,7 @@ export interface SkillQuery {
   status?: string;
   sort?: string;
   conflict?: boolean;
+  grouped?: boolean;
 }
 
 export interface IssueQuery {
