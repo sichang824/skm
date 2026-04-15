@@ -1,0 +1,21 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "skm",
+  "outputfilename": "skm",
+  "frontend:dir": "frontend",
+  "frontend:install": "pnpm install",
+  "frontend:build": "pnpm build",
+  "frontend:dev:watcher": "pnpm dev -- --host 127.0.0.1 --port 34116",
+  "frontend:dev:serverUrl": "auto",
+  "assetdir": "frontend/dist",
+  "build:dir": "build",
+  "author": {
+    "name": "ann",
+    "email": ""
+  },
+  "info": {
+    "companyName": "SKM",
+    "productName": "SKM",
+    "productVersion": "1.0.0"
+  }
+}

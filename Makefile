@@ -13,7 +13,7 @@ FRONTEND_URL := http://localhost:$(FRONTEND_PORT)
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check-tools install reset seed dev dev/seed dev-backend dev-frontend test build clean
+.PHONY: help check-tools install reset seed dev dev/seed dev-backend dev-frontend test build clean app-dev app-build
 
 help: ## Show available workspace commands
 	@echo "SKM workspace commands"
@@ -30,6 +30,7 @@ check-tools: ## Check required local tools
 install: check-tools ## Install frontend deps and preload backend modules
 	@$(MAKE) -C $(FRONTEND_DIR) install
 	@cd $(BACKEND_DIR) && go mod download
+	@go mod download
 
 reset: ## Remove the local SQLite database files
 	@echo "Resetting local database..."
@@ -90,6 +91,12 @@ test: check-tools ## Run backend and frontend tests
 build: check-tools ## Build backend binary and frontend assets
 	@$(MAKE) -C $(BACKEND_DIR) build
 	@$(MAKE) -C $(FRONTEND_DIR) build
+
+app-dev: check-tools ## Start the Wails desktop app in development mode
+	@go run github.com/wailsapp/wails/v2/cmd/wails@v2.12.0 dev
+
+app-build: check-tools ## Build the macOS desktop app bundle with Wails
+	@go run github.com/wailsapp/wails/v2/cmd/wails@v2.12.0 build -platform darwin/universal
 
 clean: ## Clean backend and frontend build artifacts
 	@$(MAKE) -C $(BACKEND_DIR) clean
