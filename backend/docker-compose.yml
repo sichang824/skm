@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  # Backend API Server
+  api:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - LOG_LEVEL=info
+      - LOG_FORMAT=json
+      - DB_DRIVER=postgres
+      - DB_DSN=postgres://postgres:postgres@db:5432/backend?sslmode=disable
+      - JWT_SECRET=your-secret-key-change-in-production
+      - JWT_TOKEN_DURATION=24h
+    depends_on:
+      - db
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+
+  # PostgreSQL Database
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=backend
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

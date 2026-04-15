@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SKM - Skills Manager</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Vue 3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#4f46e5',
+                        primaryHover: '#4338ca',
+                        sidebar: '#f8fafc',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* 自定义滚动条 */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
+        .fade-enter-from, .fade-leave-to { opacity: 0; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 h-screen overflow-hidden font-sans">
+    <div id="app" class="flex h-full w-full">
+        
+        <!-- 左侧导航栏 -->
+        <aside class="w-64 bg-sidebar border-r border-slate-200 flex flex-col transition-all duration-300">
+            <div class="h-16 flex items-center px-6 border-b border-slate-200">
+                <i class="fa-solid fa-layer-group text-primary text-xl mr-3"></i>
+                <h1 class="text-xl font-bold tracking-tight text-slate-900">SKM</h1>
+                <span class="ml-2 text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full font-medium">v0.1</span>
+            </div>
+            
+            <div class="p-4 flex-1 overflow-y-auto">
+                <nav class="space-y-1">
+                    <a v-for="nav in navItems" :key="nav.id" @click="currentView = nav.id"
+                       :class="['flex items-center px-3 py-2.5 text-sm font-medium rounded-lg cursor-pointer transition-colors', 
+                                currentView === nav.id ? 'bg-primary text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900']">
+                        <i :class="['w-5 mr-2 text-center', nav.icon]"></i>
+                        {{ nav.name }}
+                    </a>
+                </nav>
+
+                <div class="mt-8">
+                    <h3 class="px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">快捷操作</h3>
+                    <button @click="triggerScan" class="w-full flex items-center px-3 py-2 text-sm font-medium text-slate-600 rounded-lg hover:bg-slate-200 transition-colors">
+                        <i class="fa-solid fa-rotate w-5 mr-2 text-center" :class="{'animate-spin': isScanning}"></i>
+                        全量扫描目录
+                    </button>
+                </div>
+            </div>
+
+            <div class="p-4 border-t border-slate-200">
+                <div class="flex items-center">
+                    <div class="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
+                        U
+                    </div>
+                    <div class="ml-3">
+                        <p class="text-sm font-medium text-slate-700">Local User</p>
+                        <p class="text-xs text-slate-500">Read-only Mode</p>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- 主内容区 -->
+        <main class="flex-1 flex flex-col h-full overflow-hidden relative">
+            
+            <!-- 顶部栏 -->
+            <header class="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0">
+                <h2 class="text-xl font-semibold text-slate-800">{{ currentViewName }}</h2>
+                <div class="flex items-center space-x-4">
+                    <div class="relative">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+                        <input type="text" placeholder="全局搜索 Skills..." 
+                               class="pl-9 pr-4 py-1.5 bg-slate-100 border-transparent rounded-lg text-sm focus:bg-white focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none w-64 transition-all">
+                    </div>
+                    <button class="relative p-2 text-slate-400 hover:text-slate-600 transition-colors">
+                        <i class="fa-regular fa-bell"></i>
+                        <span class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border border-white" v-if="stats.issues > 0"></span>
+                    </button>
+                </div>
+            </header>
+
+            <!-- 动态视图容器 -->
+            <div class="flex-1 overflow-y-auto p-8 bg-slate-50/50">
+                
+                <!-- 1. 仪表盘 (Dashboard) -->
+                <div v-show="currentView === 'dashboard'" class="space-y-6">
+                    <!-- 数据卡片 -->
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                        <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-center">
+                            <div class="w-12 h-12 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center text-xl mr-4">
+                                <i class="fa-solid fa-cubes"></i>
+                            </div>
+                            <div>
+                                <p class="text-sm font-medium text-slate-500">总 Skills</p>
+                                <p class="text-2xl font-bold text-slate-800">{{ stats.totalSkills }}</p>
+                            </div>
+                        </div>
+                        <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-center">
+                            <div class="w-12 h-12 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center text-xl mr-4">
+                                <i class="fa-solid fa-folder-tree"></i>
+                            </div>
+                            <div>
+                                <p class="text-sm font-medium text-slate-500">Providers</p>
+                                <p class="text-2xl font-bold text-slate-800">{{ stats.providers }}</p>
+                            </div>
+                        </div>
+                        <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-center">
+                            <div class="w-12 h-12 rounded-lg bg-yellow-50 text-yellow-600 flex items-center justify-center text-xl mr-4">
+                                <i class="fa-solid fa-triangle-exclamation"></i>
+                            </div>
+                            <div>
+                                <p class="text-sm font-medium text-slate-500">冲突项</p>
+                                <p class="text-2xl font-bold text-slate-800">{{ stats.conflicts }}</p>
+                            </div>
+                        </div>
+                        <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-center">
+                            <div class="w-12 h-12 rounded-lg bg-red-50 text-red-600 flex items-center justify-center text-xl mr-4">
+                                <i class="fa-solid fa-bug"></i>
+                            </div>
+                            <div>
+                                <p class="text-sm font-medium text-slate-500">异常目录</p>
+                                <p class="text-2xl font-bold text-slate-800">{{ stats.issues }}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <!-- 最近扫描活动 -->
+                        <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                            <h3 class="text-base font-semibold text-slate-800 mb-4">最近扫描日志</h3>
+                            <div class="space-y-4">
+                                <div class="flex pb-4 border-b border-slate-100 last:border-0" v-for="log in scanLogs" :key="log.id">
+                                    <div class="mt-1 mr-4">
+                                        <div :class="{'text-green-500': log.status==='success', 'text-yellow-500': log.status==='warning'}" class="text-sm">
+                                            <i class="fa-solid fa-circle-check" v-if="log.status==='success'"></i>
+                                            <i class="fa-solid fa-circle-exclamation" v-if="log.status==='warning'"></i>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <p class="text-sm font-medium text-slate-800">{{ log.action }}</p>
+                                        <p class="text-xs text-slate-500 mt-0.5">{{ log.details }}</p>
+                                    </div>
+                                    <div class="ml-auto text-xs text-slate-400">{{ log.time }}</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Provider 状态占比 (Mock) -->
+                        <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                            <h3 class="text-base font-semibold text-slate-800 mb-4">Skills 来源分布</h3>
+                            <div class="space-y-4">
+                                <div v-for="prov in providers" :key="prov.id">
+                                    <div class="flex justify-between text-sm mb-1">
+                                        <span class="text-slate-600 font-medium">{{ prov.name }}</span>
+                                        <span class="text-slate-500">{{ getProviderSkillCount(prov.name) }} 个</span>
+                                    </div>
+                                    <div class="w-full bg-slate-100 rounded-full h-2">
+                                        <div class="bg-primary h-2 rounded-full" :style="{ width: (getProviderSkillCount(prov.name) / stats.totalSkills * 100) + '%' }"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. Skills 列表 (Skills) -->
+                <div v-show="currentView === 'skills'" class="bg-white rounded-xl border border-slate-200 shadow-sm h-full flex flex-col">
+                    <div class="p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-4">
+                        <div class="flex items-center space-x-2">
+                            <input v-model="filters.search" type="text" placeholder="按名称搜索..." class="px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-primary w-64">
+                            <select v-model="filters.provider" class="px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-primary text-slate-600 bg-white">
+                                <option value="">全部 Provider</option>
+                                <option v-for="p in providers" :key="p.id" :value="p.name">{{ p.name }}</option>
+                            </select>
+                            <select v-model="filters.status" class="px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-primary text-slate-600 bg-white">
+                                <option value="">全部状态</option>
+                                <option value="Valid">正常 (Valid)</option>
+                                <option value="Conflict">冲突 (Conflict)</option>
+                                <option value="Error">异常 (Error)</option>
+                            </select>
+                        </div>
+                        <div class="text-sm text-slate-500">共找到 {{ filteredSkills.length }} 个结果</div>
+                    </div>
+                    
+                    <div class="flex-1 overflow-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wider sticky top-0 z-10">
+                                    <th class="px-6 py-3 font-medium">名称 / 简介</th>
+                                    <th class="px-6 py-3 font-medium">Provider</th>
+                                    <th class="px-6 py-3 font-medium">分类</th>
+                                    <th class="px-6 py-3 font-medium">状态</th>
+                                    <th class="px-6 py-3 font-medium text-right">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody class="text-sm divide-y divide-slate-100">
+                                <tr v-for="skill in filteredSkills" :key="skill.id" class="hover:bg-slate-50 transition-colors group">
+                                    <td class="px-6 py-4">
+                                        <div class="flex items-center">
+                                            <div class="w-8 h-8 rounded bg-slate-100 flex items-center justify-center text-slate-500 mr-3">
+                                                <i class="fa-solid fa-code"></i>
+                                            </div>
+                                            <div>
+                                                <div class="font-medium text-slate-900 group-hover:text-primary transition-colors cursor-pointer" @click="openSkillDetail(skill)">{{ skill.name }}</div>
+                                                <div class="text-slate-500 text-xs mt-0.5 truncate w-64" :title="skill.summary">{{ skill.summary }}</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="px-6 py-4">
+                                        <span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-slate-100 text-slate-700">
+                                            <i class="fa-solid fa-folder-open mr-1.5 text-slate-400"></i>{{ skill.provider }}
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 text-slate-600">{{ skill.category }}</td>
+                                    <td class="px-6 py-4">
+                                        <span v-if="skill.status === 'Valid'" class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-green-50 text-green-700 border border-green-200">正常</span>
+                                        <span v-if="skill.status === 'Conflict'" class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-yellow-50 text-yellow-700 border border-yellow-200">冲突</span>
+                                        <span v-if="skill.status === 'Error'" class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-red-50 text-red-700 border border-red-200">异常</span>
+                                    </td>
+                                    <td class="px-6 py-4 text-right">
+                                        <button @click="openSkillDetail(skill)" class="text-primary hover:text-primaryHover text-sm font-medium">查看详情</button>
+                                    </td>
+                                </tr>
+                                <tr v-if="filteredSkills.length === 0">
+                                    <td colspan="5" class="px-6 py-12 text-center text-slate-500">
+                                        <i class="fa-solid fa-box-open text-3xl mb-3 text-slate-300"></i>
+                                        <p>未找到符合条件的 Skills</p>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 3. Providers 管理 (Providers) -->
+                <div v-show="currentView === 'providers'" class="space-y-6">
+                    <div class="flex justify-between items-center">
+                        <p class="text-sm text-slate-500">管理从哪些本地目录扫描和加载 Skills。支持配置优先级以解决冲突。</p>
+                        <button class="bg-primary hover:bg-primaryHover text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center">
+                            <i class="fa-solid fa-plus mr-2"></i> 新增 Provider
+                        </button>
+                    </div>
+
+                    <div class="grid grid-cols-1 gap-4">
+                        <div v-for="prov in providers" :key="prov.id" class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-start justify-between group">
+                            <div class="flex-1">
+                                <div class="flex items-center mb-1">
+                                    <h3 class="text-base font-semibold text-slate-900 mr-3">{{ prov.name }}</h3>
+                                    <span v-if="prov.enabled" class="px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">已启用</span>
+                                    <span v-else class="px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-500">已停用</span>
+                                    <span class="ml-2 px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-600 border border-blue-100">优先级: {{ prov.priority }}</span>
+                                </div>
+                                <div class="text-sm text-slate-500 font-mono mb-3 bg-slate-50 px-2 py-1 rounded inline-block mt-1">{{ prov.path }}</div>
+                                <div class="flex items-center text-xs text-slate-400 space-x-4">
+                                    <span><i class="fa-regular fa-clock mr-1"></i>上次扫描: {{ prov.lastScanned }}</span>
+                                    <span><i class="fa-solid fa-cubes mr-1"></i>包含 Skills: {{ getProviderSkillCount(prov.name) }}</span>
+                                </div>
+                            </div>
+                            <div class="flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button class="p-2 text-slate-400 hover:text-primary transition-colors tooltip" title="重新扫描此目录"><i class="fa-solid fa-rotate-right"></i></button>
+                                <button class="p-2 text-slate-400 hover:text-slate-700 transition-colors tooltip" title="编辑"><i class="fa-solid fa-pen"></i></button>
+                                <button class="p-2 text-slate-400 hover:text-red-600 transition-colors tooltip" title="删除"><i class="fa-solid fa-trash"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. 异常与冲突 (Issues) -->
+                <div v-show="currentView === 'issues'" class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div class="p-4 border-b border-slate-200 bg-red-50/50">
+                        <h3 class="text-base font-medium text-red-800 flex items-center">
+                            <i class="fa-solid fa-shield-cat mr-2"></i> 发现 {{ issues.length }} 个需要关注的异常
+                        </h3>
+                    </div>
+                    <ul class="divide-y divide-slate-100">
+                        <li v-for="issue in issues" :key="issue.id" class="p-4 hover:bg-slate-50 flex items-start">
+                            <div class="mt-0.5 mr-4">
+                                <i class="fa-solid fa-circle-exclamation text-red-500" v-if="issue.type === 'error'"></i>
+                                <i class="fa-solid fa-code-merge text-yellow-500" v-if="issue.type === 'conflict'"></i>
+                            </div>
+                            <div class="flex-1">
+                                <h4 class="text-sm font-medium text-slate-900">{{ issue.title }}</h4>
+                                <p class="text-xs text-slate-500 mt-1">{{ issue.path }}</p>
+                                <div class="mt-2 text-sm text-slate-700 bg-slate-100/50 p-2 rounded border border-slate-200" v-if="issue.details">
+                                    {{ issue.details }}
+                                </div>
+                            </div>
+                            <div class="ml-4">
+                                <button class="text-xs text-primary font-medium hover:underline">查看详情</button>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+
+            </div>
+            
+            <!-- 扫描状态全局提示 -->
+            <transition name="fade">
+                <div v-if="isScanning" class="absolute bottom-6 right-6 bg-slate-800 text-white px-4 py-3 rounded-lg shadow-xl flex items-center z-50">
+                    <i class="fa-solid fa-circle-notch animate-spin mr-3 text-primary"></i>
+                    <div>
+                        <p class="text-sm font-medium">正在扫描本地目录...</p>
+                        <p class="text-xs text-slate-300">已扫描 ~/.agents/skills (12/24)</p>
+                    </div>
+                </div>
+            </transition>
+        </main>
+
+    <!-- 技能详情弹窗 (Skill Modal) (现在移动到了 #app 内部) -->
+    <transition name="fade">
+        <div v-if="selectedSkill" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 lg:p-8" @click.self="closeSkillDetail">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-full max-h-[85vh] flex flex-col overflow-hidden">
+                
+                <!-- Modal Header -->
+                <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+                    <div class="flex items-center">
+                        <div class="w-10 h-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center mr-4">
+                            <i class="fa-solid fa-cube text-lg"></i>
+                        </div>
+                        <div>
+                            <h2 class="text-lg font-bold text-slate-900">{{ selectedSkill.name }}</h2>
+                            <p class="text-xs text-slate-500 font-mono">{{ selectedSkill.path }}</p>
+                        </div>
+                    </div>
+                    <button @click="closeSkillDetail" class="text-slate-400 hover:text-slate-600 p-2 bg-slate-200/50 hover:bg-slate-200 rounded-full transition-colors">
+                        <i class="fa-solid fa-xmark text-lg"></i>
+                    </button>
+                </div>
+
+                <!-- Modal Body -->
+                <div class="flex-1 flex overflow-hidden">
+                    
+                    <!-- 左侧：基础信息与文件树 -->
+                    <div class="w-1/3 border-r border-slate-200 bg-slate-50/50 flex flex-col overflow-y-auto">
+                        <div class="p-5 border-b border-slate-200 space-y-4">
+                            <div>
+                                <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1">Provider 来源</label>
+                                <div class="text-sm font-medium text-slate-800">{{ selectedSkill.provider }}</div>
+                            </div>
+                            <div>
+                                <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1">分类 & 标签</label>
+                                <div class="flex flex-wrap gap-2 mt-1">
+                                    <span class="px-2 py-0.5 rounded bg-slate-200 text-slate-700 text-xs">{{ selectedSkill.category }}</span>
+                                    <span class="px-2 py-0.5 rounded bg-blue-50 text-blue-600 text-xs border border-blue-100">AI</span>
+                                    <span class="px-2 py-0.5 rounded bg-blue-50 text-blue-600 text-xs border border-blue-100">Utility</span>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1">状态</label>
+                                <div class="text-sm">
+                                    <span v-if="selectedSkill.status === 'Valid'" class="text-green-600 font-medium"><i class="fa-solid fa-check-circle mr-1"></i>结构规范</span>
+                                    <span v-else-if="selectedSkill.status === 'Conflict'" class="text-yellow-600 font-medium"><i class="fa-solid fa-triangle-exclamation mr-1"></i>存在冲突</span>
+                                    <span v-else class="text-red-600 font-medium"><i class="fa-solid fa-circle-xmark mr-1"></i>解析异常</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="p-5 flex-1">
+                            <h3 class="text-sm font-semibold text-slate-800 mb-3 flex justify-between items-center">
+                                目录结构
+                                <button class="text-primary hover:underline text-xs font-normal" title="在访达/资源管理器中打开">打开目录</button>
+                            </h3>
+                            <div class="font-mono text-sm text-slate-600 bg-white p-3 rounded-lg border border-slate-200 shadow-inner">
+                                <ul class="space-y-1.5">
+                                    <li class="flex items-center text-slate-800 font-medium">
+                                        <i class="fa-solid fa-folder-open text-blue-400 mr-2"></i> {{ selectedSkill.name }}
+                                    </li>
+                                    <li class="flex items-center pl-4 text-primary font-medium cursor-pointer hover:bg-slate-50 rounded px-1">
+                                        <i class="fa-brands fa-markdown mr-2"></i> SKILL.md
+                                    </li>
+                                    <li class="flex items-center pl-4 cursor-pointer hover:bg-slate-50 rounded px-1">
+                                        <i class="fa-brands fa-python text-yellow-500 mr-2"></i> main.py
+                                    </li>
+                                    <li class="flex items-center pl-4 text-slate-500 cursor-pointer hover:bg-slate-50 rounded px-1">
+                                        <i class="fa-solid fa-folder mr-2"></i> assets/
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 右侧：SKILL.md 预览 -->
+                    <div class="w-2/3 flex flex-col bg-white">
+                        <div class="flex border-b border-slate-200 bg-slate-50">
+                            <button class="px-6 py-3 text-sm font-medium text-primary border-b-2 border-primary bg-white">预览渲染</button>
+                            <button class="px-6 py-3 text-sm font-medium text-slate-500 hover:text-slate-700">Frontmatter 解析</button>
+                            <button class="px-6 py-3 text-sm font-medium text-slate-500 hover:text-slate-700 ml-auto flex items-center border-l border-slate-200">
+                                <i class="fa-solid fa-arrow-up-right-from-square mr-2"></i> 原文打开
+                            </button>
+                        </div>
+                        <div class="p-8 overflow-y-auto flex-1 prose prose-slate max-w-none">
+                            <h1 class="text-2xl font-bold mb-4">{{ selectedSkill.name }}</h1>
+                            <p class="text-slate-600 mb-6">{{ selectedSkill.summary }}</p>
+                            
+                            <h3 class="text-lg font-semibold mt-6 mb-2">Capabilities</h3>
+                            <ul class="list-disc pl-5 space-y-1 text-slate-700">
+                                <li>Analyzes input text and generates structured JSON output.</li>
+                                <li>Supports multi-language translation automatically.</li>
+                                <li>Requires API keys for remote execution (optional).</li>
+                            </ul>
+
+                            <h3 class="text-lg font-semibold mt-6 mb-2">Usage Example</h3>
+                            <pre class="bg-slate-800 text-slate-100 p-4 rounded-lg font-mono text-sm overflow-x-auto"><code>$ skill run {{ selectedSkill.name }} --input "Hello World"
+> { "status": "success", "result": "你好，世界" }</code></pre>
+                            
+                            <div class="mt-8 p-4 bg-yellow-50 border-l-4 border-yellow-400 text-yellow-800 text-sm" v-if="selectedSkill.status === 'Conflict'">
+                            <strong>⚠️ 冲突警告：</strong> 在 `Workspace` 中发现了同名且版本不一致的 Skill，当前依据优先级展示 `{{ selectedSkill.provider }}` 下的内容。
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+    </transition>
+    </div>
+
+    <script>
+        const { createApp, ref, computed } = Vue;
+
+        createApp({
+            setup() {
+                // 导航状态
+                const currentView = ref('dashboard');
+                const navItems = [
+                    { id: 'dashboard', name: '仪表盘', icon: 'fa-solid fa-chart-pie' },
+                    { id: 'skills', name: '所有技能 (Skills)', icon: 'fa-solid fa-cubes' },
+                    { id: 'providers', name: '来源管理 (Providers)', icon: 'fa-solid fa-folder-tree' },
+                    { id: 'issues', name: '异常与冲突', icon: 'fa-solid fa-shield-cat' }
+                ];
+
+                const currentViewName = computed(() => {
+                    return navItems.find(nav => nav.id === currentView.value)?.name || 'SKM';
+                });
+
+                // 模拟数据
+                const providers = ref([
+                    { id: 1, name: 'global', path: '~/.agents/skills', enabled: true, priority: 1, lastScanned: '10分钟前' },
+                    { id: 2, name: 'workspace', path: '/Users/dev/project/.skills', enabled: true, priority: 2, lastScanned: '2小时前' },
+                    { id: 3, name: 'cursor', path: '~/.cursor/skills', enabled: false, priority: 3, lastScanned: '3天前' }
+                ]);
+
+                const skills = ref([
+                    { id: 101, name: 'git-commit-gen', summary: '自动根据 git diff 生成符合规范的 commit message', provider: 'global', category: 'Developer Tools', status: 'Valid', path: '~/.agents/skills/git-commit-gen' },
+                    { id: 102, name: 'code-review', summary: '执行静态分析并提供修改建议', provider: 'workspace', category: 'Code Quality', status: 'Valid', path: '/Users/dev/project/.skills/code-review' },
+                    { id: 103, name: 'translate-i18n', summary: '多语言本地化提取工具', provider: 'global', category: 'Utilities', status: 'Conflict', path: '~/.agents/skills/translate-i18n' },
+                    { id: 104, name: 'translate-i18n', summary: '项目专属定制翻译工具', provider: 'workspace', category: 'Utilities', status: 'Conflict', path: '/Users/dev/project/.skills/translate-i18n' },
+                    { id: 105, name: 'unknown-script', summary: '缺失 Frontmatter 信息的遗留脚本', provider: 'global', category: 'Uncategorized', status: 'Error', path: '~/.agents/skills/unknown-script' },
+                    { id: 106, name: 'db-schema-doc', summary: '导出数据库结构为 Markdown', provider: 'workspace', category: 'Database', status: 'Valid', path: '/Users/dev/project/.skills/db-schema-doc' },
+                ]);
+
+                const issues = ref([
+                    { id: 1, type: 'conflict', title: '发现冲突：同名 Skill "translate-i18n"', path: '同时存在于 global 与 workspace', details: '系统当前根据优先级，应用了 workspace 中的定义。' },
+                    { id: 2, type: 'error', title: '解析异常：缺失 SKILL.md', path: '~/.agents/skills/broken-folder/', details: '目录被识别为 skill 候选，但内部未找到规范的 SKILL.md 文件。' },
+                    { id: 3, type: 'error', title: '解析异常：Frontmatter 不合法', path: '~/.agents/skills/unknown-script/SKILL.md', details: 'YAML 语法错误：缺少必要的 `name` 字段。' }
+                ]);
+
+                const scanLogs = ref([
+                    { id: 1, action: '完成增量扫描 (Workspace)', details: '发现 1 个新增, 0 个冲突', time: '10分钟前', status: 'success' },
+                    { id: 2, action: '全量扫描完成', details: '共扫描 24 个目录，发现 3 个异常', time: '2小时前', status: 'warning' }
+                ]);
+
+                // 统计数据
+                const stats = computed(() => ({
+                    totalSkills: skills.value.length,
+                    providers: providers.value.length,
+                    conflicts: skills.value.filter(s => s.status === 'Conflict').length,
+                    issues: issues.value.length
+                }));
+
+                const getProviderSkillCount = (providerName) => {
+                    return skills.value.filter(s => s.provider === providerName).length;
+                };
+
+                // 过滤与搜索
+                const filters = ref({ search: '', provider: '', status: '' });
+                const filteredSkills = computed(() => {
+                    return skills.value.filter(skill => {
+                        const matchSearch = skill.name.toLowerCase().includes(filters.value.search.toLowerCase()) || 
+                                            skill.summary.toLowerCase().includes(filters.value.search.toLowerCase());
+                        const matchProvider = filters.value.provider ? skill.provider === filters.value.provider : true;
+                        const matchStatus = filters.value.status ? skill.status === filters.value.status : true;
+                        return matchSearch && matchProvider && matchStatus;
+                    });
+                });
+
+                // 交互动作
+                const isScanning = ref(false);
+                const triggerScan = () => {
+                    if (isScanning.value) return;
+                    isScanning.value = true;
+                    setTimeout(() => {
+                        isScanning.value = false;
+                        scanLogs.value.unshift({ id: Date.now(), action: '手动全量扫描完成', details: '更新了索引，未发现新变化', time: '刚刚', status: 'success' });
+                    }, 2000);
+                };
+
+                const selectedSkill = ref(null);
+                const openSkillDetail = (skill) => { selectedSkill.value = skill; };
+                const closeSkillDetail = () => { selectedSkill.value = null; };
+
+                return {
+                    currentView, currentViewName, navItems,
+                    providers, skills, issues, scanLogs, stats, getProviderSkillCount,
+                    filters, filteredSkills,
+                    isScanning, triggerScan,
+                    selectedSkill, openSkillDetail, closeSkillDetail
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

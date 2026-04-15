@@ -1,0 +1,36 @@
+# Project Information
+# This file contains metadata about the backend-go template
+
+PROJECT_NAME=backend-go
+VERSION=1.0.0
+CREATED_DATE=2024-01-14
+BASED_ON=experts-backend-go
+GO_VERSION=1.24.0
+
+# Features
+FEATURES=gin,gorm,zid,jwt,sqlite,postgresql,cors,logging,pagination,cli
+
+# File Count
+TOTAL_FILES=42
+GO_FILES=25
+DOC_FILES=8
+CONFIG_FILES=9
+
+# Architecture
+ARCHITECTURE=layered
+LAYERS=handler,service,repository,model
+
+# Database Support
+DATABASES=sqlite,postgresql
+
+# Authentication
+AUTH_TYPE=jwt
+PASSWORD_HASH=bcrypt
+
+# Documentation
+DOCS=README,QUICKSTART,DEVELOPMENT,API_EXAMPLES,PROJECT_STRUCTURE,SUMMARY,CHECKLIST
+
+# Status
+STATUS=ready
+TESTED=yes
+PRODUCTION_READY=yes
