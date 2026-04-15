@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/bmatcuk/doublestar/v4"
 	"gorm.io/gorm"
 )
 
@@ -40,8 +42,15 @@ type skillRelationState struct {
 }
 
 type skillToMetadata struct {
-	Files       []string `json:"files"`
 	Directories []string `json:"directories"`
+	Include     []string `json:"include,omitempty"`
+	Exclude     []string `json:"exclude,omitempty"`
+	LegacyFiles []string `json:"files,omitempty"`
+}
+
+type skillCopyRules struct {
+	Include []string
+	Exclude []string
 }
 
 type CatalogService struct {
@@ -398,15 +407,9 @@ func (s *CatalogService) AttachSkill(ctx context.Context, skillZid string, input
 		if err := copyDirectory(sourcePath, targetPath, copyDirectoryOptions{Overwrite: true, SkipRootFiles: map[string]struct{}{
 			skillRelationFromFile: {},
 			skillRelationToFile:   {},
-		}}); err != nil {
+		}, Rules: copyRulesFromMetadata(sourceRelation.To)}); err != nil {
 			return nil, err
 		}
-
-		files, err := collectSkillFileList(sourcePath)
-		if err != nil {
-			return nil, err
-		}
-		sourceRelation.To.Files = files
 		sourceRelation.To.Directories = append(sourceRelation.To.Directories, targetPath)
 		if err := writeSkillToMetadata(sourcePath, sourceRelation.To); err != nil {
 			return nil, err
@@ -496,17 +499,12 @@ func (s *CatalogService) SyncSkill(ctx context.Context, skillZid string) (*Skill
 	if err := copyDirectory(sourcePath, targetPath, copyDirectoryOptions{Overwrite: true, SkipRootFiles: map[string]struct{}{
 		skillRelationFromFile: {},
 		skillRelationToFile:   {},
-	}}); err != nil {
+	}, Rules: copyRulesFromMetadata(sourceRelation.To)}); err != nil {
 		return nil, err
 	}
 	if err := writeSkillFromMetadata(targetPath, sourcePath); err != nil {
 		return nil, err
 	}
-	files, err := collectSkillFileList(sourcePath)
-	if err != nil {
-		return nil, err
-	}
-	sourceRelation.To.Files = files
 	sourceRelation.To.Directories = append(sourceRelation.To.Directories, targetPath)
 	if err := writeSkillToMetadata(sourcePath, sourceRelation.To); err != nil {
 		return nil, err
@@ -809,6 +807,7 @@ func moveDirectory(sourcePath, targetPath string) error {
 type copyDirectoryOptions struct {
 	Overwrite     bool
 	SkipRootFiles map[string]struct{}
+	Rules         skillCopyRules
 }
 
 func clearDirectoryContents(rootPath string, skipNames map[string]struct{}) error {
@@ -865,6 +864,16 @@ func copyDirectory(sourcePath, targetPath string, options copyDirectoryOptions) 
 		if err != nil {
 			return err
 		}
+		if info.IsDir() {
+			return nil
+		}
+		shouldCopy, err := options.Rules.shouldCopy(filepath.ToSlash(rel))
+		if err != nil {
+			return err
+		}
+		if !shouldCopy {
+			return nil
+		}
 		if info.Mode()&os.ModeSymlink != 0 {
 			if options.Overwrite {
 				if err := os.RemoveAll(targetEntryPath); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -875,42 +884,16 @@ func copyDirectory(sourcePath, targetPath string, options copyDirectoryOptions) 
 			if err != nil {
 				return err
 			}
+			if err := os.MkdirAll(filepath.Dir(targetEntryPath), 0o755); err != nil {
+				return err
+			}
 			return os.Symlink(linkTarget, targetEntryPath)
-		}
-		if info.IsDir() {
-			return os.MkdirAll(targetEntryPath, info.Mode().Perm())
 		}
 		if err := os.MkdirAll(filepath.Dir(targetEntryPath), 0o755); err != nil {
 			return err
 		}
 		return copyFile(path, targetEntryPath, info.Mode().Perm())
 	})
-}
-
-func collectSkillFileList(rootPath string) ([]string, error) {
-	files := make([]string, 0)
-	err := filepath.Walk(rootPath, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if path == rootPath || info.IsDir() {
-			return nil
-		}
-		rel, err := filepath.Rel(rootPath, path)
-		if err != nil {
-			return err
-		}
-		if rel == skillRelationFromFile || rel == skillRelationToFile {
-			return nil
-		}
-		files = append(files, filepath.ToSlash(rel))
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	sort.Strings(files)
-	return files, nil
 }
 
 func readSkillRelationForDisplay(rootPath string) *models.SkillRelation {
@@ -922,7 +905,12 @@ func readSkillRelationForDisplay(rootPath string) *models.SkillRelation {
 		return &models.SkillRelation{Mode: "from", FromPath: state.FromPath}
 	}
 	if state.HasTo {
-		return &models.SkillRelation{Mode: "to", Files: append([]string{}, state.To.Files...), Directories: append([]string{}, state.To.Directories...)}
+		return &models.SkillRelation{
+			Mode:        "to",
+			Directories: append([]string{}, state.To.Directories...),
+			Include:     append([]string{}, state.To.Include...),
+			Exclude:     append([]string{}, state.To.Exclude...),
+		}
 	}
 	return nil
 }
@@ -992,9 +980,53 @@ func readSkillRelationState(rootPath string) (skillRelationState, error) {
 }
 
 func normalizeSkillToMetadata(metadata skillToMetadata) skillToMetadata {
-	metadata.Files = uniqueSortedStrings(metadata.Files)
 	metadata.Directories = uniqueSortedStrings(metadata.Directories)
+	metadata.Include = uniqueSortedPatterns(metadata.Include)
+	metadata.Exclude = uniqueSortedPatterns(metadata.Exclude)
+	if len(metadata.Include) == 0 {
+		metadata.Include = []string{"**"}
+	}
+	metadata.LegacyFiles = nil
 	return metadata
+}
+
+func copyRulesFromMetadata(metadata skillToMetadata) skillCopyRules {
+	metadata = normalizeSkillToMetadata(metadata)
+	return skillCopyRules{Include: metadata.Include, Exclude: metadata.Exclude}
+}
+
+func (r skillCopyRules) shouldCopy(relativePath string) (bool, error) {
+	normalizedPath := filepath.ToSlash(strings.TrimSpace(relativePath))
+	if normalizedPath == "" || normalizedPath == "." {
+		return false, nil
+	}
+	if normalizedPath == skillRelationFromFile || normalizedPath == skillRelationToFile {
+		return false, nil
+	}
+	included := len(r.Include) == 0
+	for _, pattern := range r.Include {
+		matched, err := doublestar.Match(pattern, normalizedPath)
+		if err != nil {
+			return false, fmt.Errorf("%w: invalid include pattern %q", ErrInvalidInput, pattern)
+		}
+		if matched {
+			included = true
+			break
+		}
+	}
+	if !included {
+		return false, nil
+	}
+	for _, pattern := range r.Exclude {
+		matched, err := doublestar.Match(pattern, normalizedPath)
+		if err != nil {
+			return false, fmt.Errorf("%w: invalid exclude pattern %q", ErrInvalidInput, pattern)
+		}
+		if matched {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func writeSkillFromMetadata(rootPath, fromPath string) error {
@@ -1059,6 +1091,26 @@ func uniqueSortedStrings(values []string) []string {
 		if trimmed == "" {
 			continue
 		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		result = append(result, trimmed)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func uniqueSortedPatterns(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := filepath.ToSlash(strings.TrimSpace(value))
+		trimmed = strings.TrimPrefix(trimmed, "./")
+		if trimmed == "" || trimmed == "." {
+			continue
+		}
+		trimmed = path.Clean(trimmed)
 		if _, ok := seen[trimmed]; ok {
 			continue
 		}

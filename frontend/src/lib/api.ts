@@ -56,8 +56,9 @@ export interface Skill {
 export interface SkillRelation {
   mode: "from" | "to";
   fromPath?: string;
-  files?: string[];
   directories?: string[];
+	include?: string[];
+	exclude?: string[];
 }
 
 export interface FileNode {

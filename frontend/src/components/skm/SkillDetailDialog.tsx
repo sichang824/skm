@@ -254,7 +254,7 @@ export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted, onSynced
                   className={`block w-full cursor-pointer rounded border px-2 py-2 text-left text-xs ${selectedPath === RELATION_OUTPUT_PREVIEW ? "border-blue-300 bg-blue-100 text-blue-800" : "border-blue-100 bg-blue-50 text-blue-700"}`}
                 >
                   <div className="font-medium">关联输出</div>
-                  <div className="mt-1">{`${skill.relation.directories?.length ?? 0} 个目录，${skill.relation.files?.length ?? 0} 个文件`}</div>
+                  <div className="mt-1">{`${skill.relation.directories?.length ?? 0} 个目录，${skill.relation.include?.length ?? 0} 条包含规则，${skill.relation.exclude?.length ?? 0} 条排除规则`}</div>
                 </button>
               ) : null}
               {skill?.tags.length ? (
@@ -319,17 +319,27 @@ export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted, onSynced
                 <div className="space-y-4 text-sm text-slate-700">
                   <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
                     <div className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">关联输出概览</div>
-                    <div className="mt-3 text-sm text-blue-900">{`${skill.relation?.directories?.length ?? 0} 个目录，${skill.relation?.files?.length ?? 0} 个文件`}</div>
+                    <div className="mt-3 text-sm text-blue-900">{`${skill.relation?.directories?.length ?? 0} 个目录，${skill.relation?.include?.length ?? 0} 条包含规则，${skill.relation?.exclude?.length ?? 0} 条排除规则`}</div>
                   </div>
-                  <div className="grid gap-4 lg:grid-cols-2">
+                  <div className="grid gap-4 lg:grid-cols-3">
                     <div className="rounded-xl border border-slate-200 bg-white p-4">
-                      <div className="mb-3 text-sm font-medium text-slate-800">关联文件</div>
-                      {(skill.relation?.files?.length ?? 0) > 0 ? (
+                      <div className="mb-3 text-sm font-medium text-slate-800">包含规则</div>
+                      {(skill.relation?.include?.length ?? 0) > 0 ? (
                         <ul className="space-y-2 text-sm text-slate-600">
-                          {(skill.relation?.files ?? []).map((file) => <li key={file} className="break-all font-mono text-xs">{file}</li>)}
+                          {(skill.relation?.include ?? []).map((pattern) => <li key={pattern} className="break-all font-mono text-xs">{pattern}</li>)}
                         </ul>
                       ) : (
-                        <p className="text-sm text-slate-500">暂无关联文件</p>
+                        <p className="text-sm text-slate-500">默认包含全部文件</p>
+                      )}
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-4">
+                      <div className="mb-3 text-sm font-medium text-slate-800">排除规则</div>
+                      {(skill.relation?.exclude?.length ?? 0) > 0 ? (
+                        <ul className="space-y-2 text-sm text-slate-600">
+                          {(skill.relation?.exclude ?? []).map((pattern) => <li key={pattern} className="break-all font-mono text-xs">{pattern}</li>)}
+                        </ul>
+                      ) : (
+                        <p className="text-sm text-slate-500">暂无排除规则</p>
                       )}
                     </div>
                     <div className="rounded-xl border border-slate-200 bg-white p-4">

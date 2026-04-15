@@ -68,6 +68,7 @@ GET  /api/issues?view=latest
 GET  /api/conflicts
 
 GET  /api/skills
+GET  /api/skills?grouped=true
 GET  /api/skills/:zid
 POST /api/skills/:zid/attach
 GET  /api/skills/:zid/files
@@ -83,7 +84,23 @@ GET  /api/skills/:zid/file-content?path=SKILL.md
 ````
 
 - `mode=move`: 将 Skill 目录整体移动到目标 Provider 根目录后重扫源/目标 Provider。
-- `mode=attach`: 将源 Skill 文件复制到目标 Provider 对应目录，目标目录写入 `.from`，源目录维护 `.to`，默认覆盖同名文件后重扫目标 Provider。
+- `mode=attach`: 将源 Skill 文件按 `.to` 中的 `include/exclude` 规则复制到目标 Provider 对应目录，目标目录写入 `.from`，源目录维护 `.to`，默认覆盖同名文件后重扫目标 Provider。
+
+`GET /api/skills?grouped=true` 会把关联副本(`.from`)折叠到对应源 Skill(`.to`) 的 `relatedSkills` 字段下，适合列表页展开展示。
+
+`.to` 元数据示例:
+
+```json
+{
+  "directories": ["/abs/path/to/copied-skill"],
+  "include": ["README.md", "cmd/**", "internal/**/*.go"],
+  "exclude": ["**/*_test.go", "bin/**"]
+}
+```
+
+- `directories`: 当前源 Skill 已同步到的目标目录列表。
+- `include`: 允许复制的 glob 规则，使用 `**` 递归匹配；为空时默认等同于 `"**"`。
+- `exclude`: 在 `include` 基础上额外排除的 glob 规则。
 
 ## 数据模型
 

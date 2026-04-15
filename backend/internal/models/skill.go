@@ -5,8 +5,9 @@ import "time"
 type SkillRelation struct {
 	Mode        string   `json:"mode"`
 	FromPath    string   `json:"fromPath,omitempty"`
-	Files       []string `json:"files,omitempty"`
 	Directories []string `json:"directories,omitempty"`
+	Include     []string `json:"include,omitempty"`
+	Exclude     []string `json:"exclude,omitempty"`
 }
 
 type Skill struct {

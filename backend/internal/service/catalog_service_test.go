@@ -112,9 +112,73 @@ func TestAttachSkillAttachCopiesFilesAndWritesRelationMetadata(t *testing.T) {
 	if len(metadata.Directories) != 1 || metadata.Directories[0] != result.TargetPath {
 		t.Fatalf("unexpected .to directories: %#v", metadata.Directories)
 	}
-	if len(metadata.Files) != 2 || metadata.Files[0] != "SKILL.md" || metadata.Files[1] != "notes.md" {
-		t.Fatalf("unexpected .to files: %#v", metadata.Files)
+	if len(metadata.Include) != 1 || metadata.Include[0] != "**" {
+		t.Fatalf("unexpected .to include rules: %#v", metadata.Include)
 	}
+	if len(metadata.Exclude) != 0 {
+		t.Fatalf("unexpected .to exclude rules: %#v", metadata.Exclude)
+	}
+}
+
+func TestAttachSkillAttachRespectsIncludeExcludeRules(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	baseDir := t.TempDir()
+	sourceRoot := filepath.Join(baseDir, "source")
+	targetRoot := filepath.Join(baseDir, "target")
+	for _, root := range []string{sourceRoot, targetRoot} {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatalf("mkdir root %s: %v", root, err)
+		}
+	}
+
+	sourceProvider := createTestProvider(t, db, "Source Rules", sourceRoot)
+	targetProvider := createTestProvider(t, db, "Target Rules", targetRoot)
+	skill := createTestSkill(t, db, sourceProvider, filepath.Join(sourceRoot, "rules-skill"), "rules_skill")
+	if err := os.MkdirAll(filepath.Join(skill.RootPath, "cmd"), 0o755); err != nil {
+		t.Fatalf("mkdir cmd: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(skill.RootPath, "internal"), 0o755); err != nil {
+		t.Fatalf("mkdir internal: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(skill.RootPath, "bin"), 0o755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skill.RootPath, "README.md"), []byte("readme"), 0o644); err != nil {
+		t.Fatalf("write README.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skill.RootPath, "cmd", "root.go"), []byte("package cmd"), 0o644); err != nil {
+		t.Fatalf("write cmd/root.go: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skill.RootPath, "internal", "rule.go"), []byte("package internal"), 0o644); err != nil {
+		t.Fatalf("write internal/rule.go: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skill.RootPath, "internal", "rule_test.go"), []byte("package internal"), 0o644); err != nil {
+		t.Fatalf("write internal/rule_test.go: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skill.RootPath, "bin", "tool"), []byte("binary"), 0o644); err != nil {
+		t.Fatalf("write bin/tool: %v", err)
+	}
+	if err := writeSkillToMetadata(skill.RootPath, skillToMetadata{
+		Directories: []string{},
+		Include:     []string{"README.md", "cmd/**", "internal/**/*.go", "internal/*.go"},
+		Exclude:     []string{"**/*_test.go", "bin/**"},
+	}); err != nil {
+		t.Fatalf("write source .to: %v", err)
+	}
+
+	result, err := service.AttachSkill(ctx, skill.Zid, SkillAttachInput{TargetProviderZid: targetProvider.Zid, Mode: "attach"})
+	if err != nil {
+		t.Fatalf("AttachSkill attach returned error: %v", err)
+	}
+	assertPathExists(t, filepath.Join(result.TargetPath, "README.md"))
+	assertPathExists(t, filepath.Join(result.TargetPath, "cmd", "root.go"))
+	assertPathExists(t, filepath.Join(result.TargetPath, "internal", "rule.go"))
+	assertPathMissing(t, filepath.Join(result.TargetPath, "internal", "rule_test.go"))
+	assertPathMissing(t, filepath.Join(result.TargetPath, "bin", "tool"))
+	assertPathMissing(t, filepath.Join(result.TargetPath, skillRelationToFile))
 }
 
 func TestAttachSkillAttachAppendsTargetDirectories(t *testing.T) {
@@ -229,7 +293,7 @@ func TestSyncSkillRefreshesAttachedCopy(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(targetSkill.RootPath, "obsolete.md"), []byte("obsolete"), 0o644); err != nil {
 		t.Fatalf("write target obsolete.md: %v", err)
 	}
-	if err := writeSkillToMetadata(sourceSkill.RootPath, skillToMetadata{Files: []string{"SKILL.md", "guide.md"}, Directories: []string{targetSkill.RootPath}}); err != nil {
+	if err := writeSkillToMetadata(sourceSkill.RootPath, skillToMetadata{Directories: []string{targetSkill.RootPath}, Include: []string{"SKILL.md", "guide.md"}, Exclude: []string{"obsolete.md"}}); err != nil {
 		t.Fatalf("write source .to: %v", err)
 	}
 	if err := writeSkillFromMetadata(targetSkill.RootPath, sourceSkill.RootPath); err != nil {
@@ -271,8 +335,11 @@ func TestSyncSkillRefreshesAttachedCopy(t *testing.T) {
 	if err := json.Unmarshal(toContent, &metadata); err != nil {
 		t.Fatalf("unmarshal source .to: %v", err)
 	}
-	if len(metadata.Files) != 2 || metadata.Files[0] != "SKILL.md" || metadata.Files[1] != "guide.md" {
-		t.Fatalf("unexpected synced files metadata: %#v", metadata.Files)
+	if len(metadata.Include) != 2 || metadata.Include[0] != "SKILL.md" || metadata.Include[1] != "guide.md" {
+		t.Fatalf("unexpected synced include metadata: %#v", metadata.Include)
+	}
+	if len(metadata.Exclude) != 1 || metadata.Exclude[0] != "obsolete.md" {
+		t.Fatalf("unexpected synced exclude metadata: %#v", metadata.Exclude)
 	}
 	if len(metadata.Directories) != 1 || metadata.Directories[0] != targetSkill.RootPath {
 		t.Fatalf("unexpected synced directories metadata: %#v", metadata.Directories)
@@ -319,7 +386,7 @@ func TestListSkillsGroupedByRelation(t *testing.T) {
 	fromSkill := createTestSkill(t, db, targetProvider, filepath.Join(targetRoot, "grouped-skill"), "grouped_skill_copy")
 	plainSkill := createTestSkill(t, db, extraProvider, filepath.Join(extraRoot, "plain-skill"), "plain_skill")
 
-	if err := writeSkillToMetadata(toSkill.RootPath, skillToMetadata{Files: []string{"SKILL.md"}, Directories: []string{fromSkill.RootPath}}); err != nil {
+	if err := writeSkillToMetadata(toSkill.RootPath, skillToMetadata{Directories: []string{fromSkill.RootPath}, Include: []string{"SKILL.md"}}); err != nil {
 		t.Fatalf("write source .to: %v", err)
 	}
 	if err := writeSkillFromMetadata(fromSkill.RootPath, toSkill.RootPath); err != nil {
@@ -414,6 +481,20 @@ func createTestSkill(t *testing.T, db *gorm.DB, provider *models.Provider, rootP
 		t.Fatalf("create skill: %v", err)
 	}
 	return skill
+}
+
+func assertPathExists(t *testing.T, targetPath string) {
+	t.Helper()
+	if _, err := os.Stat(targetPath); err != nil {
+		t.Fatalf("expected path to exist %s: %v", targetPath, err)
+	}
+}
+
+func assertPathMissing(t *testing.T, targetPath string) {
+	t.Helper()
+	if _, err := os.Stat(targetPath); !os.IsNotExist(err) {
+		t.Fatalf("expected path to be missing %s: %v", targetPath, err)
+	}
 }
 
 func TestListIssuesLatestDedupesAcrossLatestJobs(t *testing.T) {
