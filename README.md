@@ -1,6 +1,6 @@
 # SKM
 
-SKM 是一个前后端分离的技能管理系统项目目录，当前包含一个 Go 后端服务和一个 React 前端应用。仓库已经具备基础的认证、示例资源管理、前端页面骨架与开发脚手架，适合作为继续实现技能管理业务的基础工程。
+SKM 是一个前后端分离的技能管理系统项目目录，当前包含一个 Go 后端服务、一个 React 前端应用，以及一个基于 Wails 的 macOS 桌面宿主。项目当前聚焦于本地 Skill Provider 的扫描、索引、冲突识别与可视化管理。
 
 ## 目录结构
 
@@ -43,14 +43,14 @@ skm/
 
 目前项目已经提供以下基础能力：
 
-- 后端健康检查与版本接口
-- 基于 JWT 的登录与当前用户信息查询
-- 一个受保护的示例资源 `items` 的增删改查接口
-- 用户管理 CLI，用于创建、删除、列出和重置用户
-- 前端首页、组件展示页、扩展页和 404 页面
+- Provider 的增删改查、启用停用与手动扫描
+- 全量扫描、扫描历史、Dashboard 汇总
+- Skill 列表、详情、目录文件浏览、`SKILL.md` 预览
+- Skill 冲突分组、异常检测、latest 问题视图
+- 前端控制台界面与 macOS 桌面版打包
 - 前后端各自独立的 Makefile 开发命令
 
-需要注意的是，`frontend` 当前仍然更偏向通用模板展示页，`backend` 中的 `items` 也是示例业务资源。如果要把它落成真正的 Skills Manager，后续还需要把“技能、分类、标签、熟练度、检索、后台管理”等领域模型和页面补齐。
+需要注意的是，当前项目已经不是通用模板，但仍处于持续演进阶段。核心链路已经围绕 Skills Manager 落地，后续可以继续补充更细的领域模型、批量编辑能力和更完整的桌面交互体验。
 
 ## 快速开始
 
@@ -100,15 +100,13 @@ make run
 
 如果希望首次启动时写入示例数据，可将 `.env` 中的 `SEED=false` 改为 `SEED=true`。
 
-### 3. 创建测试用户
+### 3. 执行一次 seed 或扫描
 
 ```bash
-cd backend
-make usermgr
-./bin/usermgr create
+make seed
 ```
 
-如果启用了种子数据，通常会自动生成示例账号，详见 `backend/README.md`。
+如需启动后立刻做一次全量扫描，可进入前端后点击“全局扫描”，或直接调用后端扫描接口。
 
 ### 4. 单独启动前端
 
@@ -128,6 +126,12 @@ make app-dev
 
 该命令会按 `wails.json` 的配置启动 Wails 宿主，并复用现有 `frontend/` 目录作为前端工程。
 
+桌面版在 macOS 上使用隐藏标题栏模式：
+
+- 原生标题文字隐藏，仅保留左上角红黄绿按钮
+- 顶部应用工具栏仍可用于拖动窗口
+- 页面内按钮区域保持正常点击，不会被拖拽行为吞掉
+
 ### 6. 构建 macOS app
 
 ```bash
@@ -135,6 +139,34 @@ make app-build
 ```
 
 构建完成后，macOS `.app` 会输出到 `build/bin/` 目录。
+
+### 7. 桌面版数据目录
+
+桌面版会根据运行环境自动选择 SQLite 路径：
+
+- 仓库内开发模式默认使用 `backend/data/app.db`
+- 打包后的 `.app` 默认使用 `~/Library/Application Support/SKM/app.db`
+
+这样 Finder 双击打开 `.app` 时，不会因为工作目录不同而出现数据库文件找不到的问题。
+
+### 8. 给桌面版执行 seed
+
+如果要给打包后的桌面版数据库初始化默认 Provider 数据，可以执行：
+
+```bash
+SEED=true SEED_ONLY=true DB_DSN="$HOME/Library/Application Support/SKM/app.db" /Users/ann/Workspace/skills/skm/build/bin/skm.app/Contents/MacOS/skm
+```
+
+如果你要初始化的是仓库开发环境数据库，则继续使用：
+
+```bash
+make seed
+```
+
+两者的差别是：
+
+- `make seed` 作用于仓库内开发数据库
+- 上面的 `.app` 命令作用于桌面版实际使用的数据库
 
 ## 常用命令
 
@@ -185,24 +217,35 @@ make app-build    # 构建 macOS 桌面 app
 ```text
 GET  /healthz
 GET  /version
-POST /auth/login
+GET  /api/dashboard
 ```
 
-### 需要认证的接口
+### Provider 与扫描接口
 
 ```text
-GET    /api/auth/me
-GET    /api/items
-POST   /api/items
-GET    /api/items/:zid
-PUT    /api/items/:zid
-DELETE /api/items/:zid
+GET  /api/providers
+POST /api/providers
+GET  /api/providers/:zid
+PUT  /api/providers/:zid
+DELETE /api/providers/:zid
+POST /api/providers/:zid/scan
+POST /api/scan
+GET  /api/scan-jobs
+GET  /api/scan-jobs/:zid
+GET  /api/issues
+GET  /api/issues?view=latest
+GET  /api/conflicts
 ```
 
-认证方式为 Bearer Token。登录成功后，将返回的 JWT 放入请求头：
+### Skill 接口
 
 ```text
-Authorization: Bearer <token>
+GET  /api/skills
+GET  /api/skills?grouped=true
+GET  /api/skills/:zid
+POST /api/skills/:zid/attach
+GET  /api/skills/:zid/files
+GET  /api/skills/:zid/file-content?path=SKILL.md
 ```
 
 ## 配置说明
@@ -213,10 +256,25 @@ Authorization: Bearer <token>
 - `DB_DRIVER`：数据库驱动，默认 `sqlite`
 - `DB_DSN`：数据库连接串，默认 `./data/app.db`
 - `SEED`：是否初始化示例数据
-- `JWT_SECRET`：JWT 签名密钥
-- `JWT_TOKEN_DURATION`：Token 有效期，默认 `24h`
 
 通过 Wails 从仓库根目录启动时，也会自动读取 `backend/.env`，SQLite 默认路径会优先落到 `backend/data/app.db`。
+
+如果桌面版从 Finder、Launchpad 或其他非仓库目录启动，SQLite 路径会自动解析到 `~/Library/Application Support/SKM/app.db`。如需覆盖，可显式设置 `DB_DSN`。
+
+## 桌面版排错
+
+如果你遇到桌面版启动后直接退出，优先检查这几项：
+
+1. 前端资源是否已经成功构建，先执行 `cd frontend && make build`
+2. `backend/.env` 是否存在，且数据库配置可用
+3. 桌面版数据库目录是否可写，默认是 `~/Library/Application Support/SKM/`
+4. 是否需要先执行一次 seed，避免初始数据为空
+
+直接从命令行启动桌面版二进制，通常比 Finder 更容易看到错误：
+
+```bash
+/Users/ann/Workspace/skills/skm/build/bin/skm.app/Contents/MacOS/skm
+```
 
 前端如需接入真实后端接口，建议下一步补充统一的 API Base URL 配置，并在 `src` 中增加数据访问层。
 

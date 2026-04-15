@@ -25,6 +25,7 @@ const titleMap: Record<string, string> = {
 export function ConsoleShell() {
   const location = useLocation();
   const navigate = useNavigate();
+  const isDesktopShell = typeof window !== "undefined" && "runtime" in window;
   const [issueCount, setIssueCount] = useState(0);
   const [isScanning, setIsScanning] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -80,7 +81,9 @@ export function ConsoleShell() {
     <div className="flex h-screen overflow-hidden bg-[var(--app-shell)] text-slate-700">
       <aside className="flex w-56 shrink-0 flex-col justify-between border-r border-slate-200 bg-[var(--app-sidebar)] backdrop-blur-xl">
         <div>
-          <div className="flex h-14 items-center border-b border-slate-200 bg-white px-4">
+          <div
+            className={`skm-drag-region flex border-b border-slate-200 bg-white px-4 ${isDesktopShell ? "h-24 items-center pt-10" : "h-14 items-center"}`}
+          >
             <div className="mr-3 flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm shadow-blue-200/80">
               <Boxes className="h-4 w-4" />
             </div>
@@ -150,9 +153,9 @@ export function ConsoleShell() {
       </aside>
 
       <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="z-10 flex h-14 items-center justify-between border-b border-slate-200 bg-white px-6">
+        <header className={`skm-drag-region z-10 flex h-14 items-center justify-between border-b border-slate-200 bg-white px-6 ${isDesktopShell ? "pl-24" : ""}`}>
           <h1 className="text-sm font-medium text-slate-700">{currentTitle}</h1>
-          <div className="flex items-center gap-3">
+          <div className="skm-no-drag flex items-center gap-3">
             <span className="flex items-center gap-2 text-xs text-slate-400">
               <span className="inline-block h-2 w-2 rounded-full bg-green-500" />
               监听中
