@@ -1,4 +1,4 @@
-.PHONY: help run test lint build clean
+.PHONY: help run seed test lint build clean
 
 APP_NAME=backend-go
 PORT?=8080
@@ -6,6 +6,7 @@ PORT?=8080
 help:
 	@echo "Available targets:"
 	@echo "  make run      - run server locally"
+	@echo "  make seed     - seed default providers and exit"
 	@echo "  make test     - run tests"
 	@echo "  make lint     - run linter"
 	@echo "  make build    - build server binary"
@@ -14,6 +15,10 @@ help:
 run:
 	@echo "🚀 Running server on port $(PORT)..."
 	@PORT=$(PORT) go run ./cmd/server
+
+seed:
+	@echo "🌱 Seeding default providers..."
+	@SEED=true SEED_ONLY=true PORT=$(PORT) go run ./cmd/server
 
 test:
 	@echo "🧪 Running tests..."

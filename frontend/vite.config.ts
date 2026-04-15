@@ -3,6 +3,8 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { visualizer } from "rollup-plugin-visualizer";
 
+const proxyTarget = process.env.VITE_PROXY_TARGET ?? "http://localhost:8080";
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
@@ -17,9 +19,9 @@ export default defineConfig({
   ],
   server: {
     proxy: {
-      "/api": "http://localhost:8080",
-      "/healthz": "http://localhost:8080",
-      "/version": "http://localhost:8080",
+      "/api": proxyTarget,
+      "/healthz": proxyTarget,
+      "/version": proxyTarget,
     },
   },
   test: {

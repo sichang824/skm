@@ -47,7 +47,41 @@ skm/
 
 ## 快速开始
 
-### 1. 启动后端
+### 1. 一键启动前后端
+
+```bash
+make dev
+```
+
+默认后端地址为 `http://localhost:8080`，默认前端地址为 `http://localhost:5173`。
+
+如果需要改端口，可直接覆盖：
+
+```bash
+BACKEND_PORT=18080 FRONTEND_PORT=4173 make dev
+```
+
+如需带 seed 启动联调：
+
+```bash
+make dev/seed
+```
+
+该命令会先删除本地 SQLite 数据库文件，再以全新数据库启动前后端并执行默认 Provider seed。
+
+如需只写入默认 Provider 而不启动长驻服务：
+
+```bash
+make seed
+```
+
+如需只重置本地数据库：
+
+```bash
+make reset
+```
+
+### 2. 单独启动后端
 
 ```bash
 cd backend
@@ -59,7 +93,7 @@ make run
 
 如果希望首次启动时写入示例数据，可将 `.env` 中的 `SEED=false` 改为 `SEED=true`。
 
-### 2. 创建测试用户
+### 3. 创建测试用户
 
 ```bash
 cd backend
@@ -69,7 +103,7 @@ make usermgr
 
 如果启用了种子数据，通常会自动生成示例账号，详见 `backend/README.md`。
 
-### 3. 启动前端
+### 4. 单独启动前端
 
 ```bash
 cd frontend
@@ -104,6 +138,19 @@ make test        # 运行测试
 make lint        # 运行 ESLint
 make type-check  # TypeScript 类型检查
 make build       # 生产构建
+```
+
+### Workspace
+
+```bash
+make dev          # 同时启动后端和前端
+make dev/seed     # 先重置本地数据库，再启动前后端，并在后端启动时执行 Provider seed
+make reset        # 删除本地 SQLite 数据库文件
+make seed         # 一次性写入默认 Provider
+make dev-backend  # 仅启动后端
+make dev-frontend # 仅启动前端
+make test         # 运行前后端测试
+make build        # 构建前后端
 ```
 
 ## 后端接口概览

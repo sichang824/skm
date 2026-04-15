@@ -18,6 +18,12 @@ pnpm install
 # or use the Makefile wrapper
 make install
 
+# or start the full stack from the repo root
+cd ..
+make dev
+
+# then return to frontend-only mode if needed
+cd frontend
 make dev        # Start dev server
 ```
 
@@ -27,6 +33,12 @@ Visit `http://localhost:5173` to see the app.
 
 ```bash
 VITE_API_BASE_URL=http://localhost:8080
+```
+
+如果你从仓库根目录启动联调，也可以直接覆盖代理目标：
+
+```bash
+BACKEND_PORT=18080 FRONTEND_PORT=4173 make dev
 ```
 
 This project uses `pnpm` as the package manager.

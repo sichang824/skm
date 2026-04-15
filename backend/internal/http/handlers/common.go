@@ -10,6 +10,8 @@ import (
 )
 
 func writeServiceError(c *gin.Context, err error) {
+	_ = c.Error(err)
+
 	switch {
 	case errors.Is(err, service.ErrProviderNotFound), errors.Is(err, service.ErrSkillNotFound), errors.Is(err, service.ErrScanJobNotFound):
 		response.Error(c, http.StatusNotFound, http.StatusNotFound, err.Error())

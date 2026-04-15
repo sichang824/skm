@@ -169,7 +169,7 @@ export function ConsoleShell() {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto bg-transparent p-6">
+        <div className="min-h-0 flex-1 overflow-y-auto bg-transparent p-6">
           <Outlet context={{ refreshKey } satisfies ShellOutletContext} />
         </div>
 

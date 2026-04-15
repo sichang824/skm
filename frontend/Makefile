@@ -1,5 +1,8 @@
 .PHONY: help install dev test test-watch test-ui build build-analyze lint lint-fix format type-check preview clean clean-all
 
+PORT ?= 5173
+HOST ?= 0.0.0.0
+
 help:
 	@echo ""
 	@echo "📦 Frontend Development Commands"
@@ -11,6 +14,7 @@ help:
 	@echo ""
 	@echo "Development:"
 	@echo "  make dev              Start dev server"
+	@echo "                        Override with PORT=$(PORT) HOST=$(HOST)"
 	@echo "  make preview          Preview production build"
 	@echo ""
 	@echo "Testing:"
@@ -34,8 +38,8 @@ install:
 	pnpm install
 
 dev:
-	@echo "🚀 Starting dev server..."
-	pnpm dev
+	@echo "🚀 Starting dev server on http://$(HOST):$(PORT)..."
+	pnpm dev -- --host $(HOST) --port $(PORT)
 
 test:
 	@echo "🧪 Running tests..."

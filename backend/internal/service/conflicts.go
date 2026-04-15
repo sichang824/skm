@@ -2,6 +2,8 @@ package service
 
 import (
 	"backend-go/internal/models"
+	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -81,7 +83,21 @@ func sortSkillsByPriority(skills []models.Skill) {
 
 func rebuildConflictState(tx *gorm.DB) (int, error) {
 	var skills []models.Skill
-	if err := tx.Preload("Provider").Joins("JOIN providers ON providers.id = skills.provider_id").Find(&skills).Error; err != nil {
+	if err := tx.
+		Select(
+			"skills.id",
+			"skills.zid",
+			"skills.provider_id",
+			"skills.name",
+			"skills.root_path",
+			"skills.content_hash",
+			"skills.last_scanned_at",
+			"skills.is_conflict",
+			"skills.is_effective",
+		).
+		Preload("Provider").
+		Joins("JOIN providers ON providers.id = skills.provider_id").
+		Find(&skills).Error; err != nil {
 		return 0, err
 	}
 
@@ -107,18 +123,30 @@ func rebuildConflictState(tx *gorm.DB) (int, error) {
 	}
 
 	for _, skill := range state {
+		conflictKindsJSON, err := marshalStringSliceJSON(skill.ConflictKinds)
+		if err != nil {
+			return 0, fmt.Errorf("marshal conflict kinds for skill %s: %w", skill.Zid, err)
+		}
 		if err := tx.Model(&models.Skill{}).
 			Where("id = ?", skill.ID).
 			Updates(map[string]any{
 				"is_conflict":    skill.IsConflict,
 				"is_effective":   skill.IsEffective,
-				"conflict_kinds": skill.ConflictKinds,
+				"conflict_kinds": conflictKindsJSON,
 			}).Error; err != nil {
 			return 0, err
 		}
 	}
 
 	return len(groups), nil
+}
+
+func marshalStringSliceJSON(values []string) (string, error) {
+	encoded, err := json.Marshal(values)
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
 }
 
 func filterEnabledSkills(skills []models.Skill) []models.Skill {

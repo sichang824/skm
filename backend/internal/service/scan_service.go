@@ -59,13 +59,13 @@ func NewScanService(db *gorm.DB) *ScanService {
 func (s *ScanService) ScanAllProviders(ctx context.Context) (*ScanRunResult, error) {
 	var providers []models.Provider
 	if err := s.db.WithContext(ctx).Where("enabled = ?", true).Order("priority DESC, name ASC").Find(&providers).Error; err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list enabled providers for scan: %w", err)
 	}
 	jobs := make([]models.ScanJob, 0, len(providers))
 	for _, provider := range providers {
 		job, err := s.scanProvider(ctx, &provider)
 		if err != nil {
-			return nil, err
+			return nil, wrapProviderError(&provider, "scan provider", err)
 		}
 		jobs = append(jobs, *job)
 	}
@@ -78,7 +78,7 @@ func (s *ScanService) ScanProviderByZid(ctx context.Context, zid string) (*model
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrProviderNotFound
 		}
-		return nil, err
+		return nil, fmt.Errorf("load provider %s for scan: %w", zid, err)
 	}
 	return s.scanProvider(ctx, &provider)
 }
@@ -93,7 +93,7 @@ func (s *ScanService) scanProvider(ctx context.Context, provider *models.Provide
 		LogLines:   []string{fmt.Sprintf("scan started for provider %s", provider.Name)},
 	}
 	if err := s.db.WithContext(ctx).Create(job).Error; err != nil {
-		return nil, err
+		return nil, wrapProviderError(provider, "create scan job", err)
 	}
 
 	discoveredSkills, discoveredIssues, scanErr := discoverProvider(provider)
@@ -106,17 +106,17 @@ func (s *ScanService) scanProvider(ctx context.Context, provider *models.Provide
 		provider.LastScanStatus = "failed"
 		provider.LastScanSummary = scanErr.Error()
 		if err := s.db.WithContext(ctx).Save(job).Error; err != nil {
-			return nil, err
+			return nil, wrapProviderError(provider, "save failed scan job", err)
 		}
 		if err := s.db.WithContext(ctx).Save(provider).Error; err != nil {
-			return nil, err
+			return nil, wrapProviderError(provider, "save failed provider state", err)
 		}
-		return nil, scanErr
+		return nil, wrapProviderError(provider, "discover provider content", scanErr)
 	}
 
 	conflictCount, addedCount, removedCount, changedCount, invalidCount, persistErr := s.persistScan(ctx, provider, job, discoveredSkills, discoveredIssues)
 	if persistErr != nil {
-		return nil, persistErr
+		return nil, wrapProviderError(provider, "persist scan results", persistErr)
 	}
 
 	job.Status = "completed"
@@ -134,10 +134,10 @@ func (s *ScanService) scanProvider(ctx context.Context, provider *models.Provide
 	provider.LastScanSummary = fmt.Sprintf("added=%d removed=%d changed=%d invalid=%d conflicts=%d", addedCount, removedCount, changedCount, invalidCount, conflictCount)
 
 	if err := s.db.WithContext(ctx).Save(job).Error; err != nil {
-		return nil, err
+		return nil, wrapProviderError(provider, "save completed scan job", err)
 	}
 	if err := s.db.WithContext(ctx).Save(provider).Error; err != nil {
-		return nil, err
+		return nil, wrapProviderError(provider, "save completed provider state", err)
 	}
 
 	return job, nil
@@ -153,7 +153,7 @@ func (s *ScanService) persistScan(ctx context.Context, provider *models.Provider
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var existing []models.Skill
 		if err := tx.Where("provider_id = ?", provider.ID).Find(&existing).Error; err != nil {
-			return err
+			return fmt.Errorf("load existing skills: %w", err)
 		}
 		existingByRoot := make(map[string]models.Skill, len(existing))
 		for _, skill := range existing {
@@ -191,7 +191,7 @@ func (s *ScanService) persistScan(ctx context.Context, provider *models.Provider
 				invalidCount++
 			}
 			if err := tx.Save(&record).Error; err != nil {
-				return err
+				return wrapDiscoveredSkillError(discovered, "save skill record", err)
 			}
 			skillIDsByRoot[record.RootPath] = record.ID
 		}
@@ -199,7 +199,7 @@ func (s *ScanService) persistScan(ctx context.Context, provider *models.Provider
 		for _, skill := range existing {
 			if !slices.Contains(discoveredRoots, skill.RootPath) {
 				if err := tx.Delete(&skill).Error; err != nil {
-					return err
+					return fmt.Errorf("delete missing skill root=%s: %w", skill.RootPath, err)
 				}
 				removedCount++
 			}
@@ -223,12 +223,15 @@ func (s *ScanService) persistScan(ctx context.Context, provider *models.Provider
 				}
 			}
 			if err := tx.Create(&record).Error; err != nil {
-				return err
+				return wrapDiscoveredIssueError(issue, "create scan issue", err)
 			}
 		}
 
 		var err error
 		conflictCount, err = rebuildConflictState(tx)
+		if err != nil {
+			return fmt.Errorf("rebuild conflict state: %w", err)
+		}
 		return err
 	})
 
@@ -238,7 +241,7 @@ func (s *ScanService) persistScan(ctx context.Context, provider *models.Provider
 func discoverProvider(provider *models.Provider) ([]discoveredSkill, []discoveredIssue, error) {
 	skillRoots, issues, err := collectSkillRoots(provider)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, wrapProviderError(provider, "collect skill roots", err)
 	}
 	results := make([]discoveredSkill, 0, len(skillRoots))
 	for _, dirPath := range skillRoots {
@@ -311,7 +314,7 @@ func discoverProvider(provider *models.Provider) ([]discoveredSkill, []discovere
 
 		info, err := os.Stat(skillMdPath)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, wrapDiscoveredSkillError(discoveredSkill{RootPath: dirPath, SkillMdPath: skillMdPath}, "stat skill document", err)
 		}
 		modifiedAt := info.ModTime()
 		results = append(results, discoveredSkill{
@@ -333,6 +336,30 @@ func discoverProvider(provider *models.Provider) ([]discoveredSkill, []discovere
 		})
 	}
 	return results, issues, nil
+}
+
+func wrapProviderError(provider *models.Provider, action string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if provider == nil {
+		return fmt.Errorf("%s: %w", action, err)
+	}
+	return fmt.Errorf("%s provider zid=%s name=%s root=%s: %w", action, provider.Zid, provider.Name, provider.RootPath, err)
+}
+
+func wrapDiscoveredSkillError(skill discoveredSkill, action string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s root=%s skill_md=%s: %w", action, skill.RootPath, skill.SkillMdPath, err)
+}
+
+func wrapDiscoveredIssueError(issue discoveredIssue, action string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s code=%s root=%s relative_path=%s: %w", action, issue.Code, issue.RootPath, issue.RelativePath, err)
 }
 
 func collectSkillRoots(provider *models.Provider) ([]string, []discoveredIssue, error) {
@@ -394,11 +421,13 @@ func collectRecursiveSkillRoots(rootPath string) ([]string, []discoveredIssue, e
 			return filepath.SkipDir
 		}
 		skillMdPath := filepath.Join(path, "SKILL.md")
-		if _, err := os.Stat(skillMdPath); err == nil {
+		_, statErr := os.Stat(skillMdPath)
+		if statErr == nil {
 			results = append(results, path)
 			return filepath.SkipDir
-		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
+		}
+		if !errors.Is(statErr, os.ErrNotExist) {
+			return statErr
 		}
 		return nil
 	})

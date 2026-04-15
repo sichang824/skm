@@ -6,6 +6,7 @@ import (
 	"backend-go/internal/http/middleware"
 	"backend-go/internal/platform/db"
 	"backend-go/internal/platform/log"
+	seedpkg "backend-go/internal/platform/seed"
 	"backend-go/internal/service"
 	"fmt"
 	"net/http"
@@ -44,6 +45,25 @@ func main() {
 	})
 	if err != nil {
 		logger.Fatal("failed to open database", zap.Error(err))
+	}
+
+	if cfg.Seed {
+		result, err := seedpkg.SeedDefaultProviders(gdb)
+		if err != nil {
+			logger.Fatal("failed to seed default providers", zap.Error(err))
+		}
+		logger.Info("default providers seeded",
+			zap.Int("created", result.Created),
+			zap.Int("existing", result.Existing),
+			zap.Int("missing", result.Missing),
+		)
+		for _, message := range result.Messages {
+			logger.Info("provider seed detail", zap.String("message", message))
+		}
+		if cfg.SeedOnly {
+			logger.Info("seed-only mode complete, exiting")
+			return
+		}
 	}
 
 	// Initialize Gin router

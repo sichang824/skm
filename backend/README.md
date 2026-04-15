@@ -19,6 +19,32 @@ make run
 
 默认启动地址：`http://localhost:8080`
 
+如需首次自动写入默认 Provider，可设置：
+
+```bash
+SEED=true make run
+```
+
+如需只执行一次 seed 并立即退出，可直接运行：
+
+```bash
+make seed
+```
+
+如果从仓库根目录联调并希望启动时自动 seed，可运行：
+
+```bash
+make dev/seed
+```
+
+当前内置的默认 Provider 会按当前用户 home 目录检查这些路径，目录存在时才写入：
+
+- `~/.workbuddy/skills`
+- `~/Workspace/skills`
+- `~/.agents/skills`
+- `~/.cursor/skills`
+- `~/.codex/skills`
+
 ## 主要接口
 
 ```bash
