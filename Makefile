@@ -3,6 +3,9 @@ SHELL := /bin/sh
 BACKEND_DIR := backend
 FRONTEND_DIR := frontend
 DB_FILE := $(BACKEND_DIR)/data/app.db
+TOOLS_BIN_DIR := .tools/bin
+WAILS := $(TOOLS_BIN_DIR)/wails
+WAILS_VERSION := v2.12.0
 
 BACKEND_PORT ?= 8080
 FRONTEND_PORT ?= 5173
@@ -13,7 +16,7 @@ FRONTEND_URL := http://localhost:$(FRONTEND_PORT)
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check-tools install reset seed dev dev/seed dev-backend dev-frontend test build clean app-dev app-build
+.PHONY: help check-tools install reset seed dev dev/seed dev-backend dev-frontend test build clean app-dev app-build wails-cli
 
 help: ## Show available workspace commands
 	@echo "SKM workspace commands"
@@ -26,6 +29,13 @@ help: ## Show available workspace commands
 check-tools: ## Check required local tools
 	@command -v go >/dev/null 2>&1 || { echo "Error: go is required"; exit 1; }
 	@command -v pnpm >/dev/null 2>&1 || { echo "Error: pnpm is required"; exit 1; }
+
+$(WAILS):
+	@mkdir -p $(TOOLS_BIN_DIR)
+	@echo "Installing Wails CLI $(WAILS_VERSION) to $(WAILS)"
+	@GOBIN=$(CURDIR)/$(TOOLS_BIN_DIR) go install github.com/wailsapp/wails/v2/cmd/wails@$(WAILS_VERSION)
+
+wails-cli: check-tools $(WAILS) ## Install or update the local Wails CLI
 
 install: check-tools ## Install frontend deps and preload backend modules
 	@$(MAKE) -C $(FRONTEND_DIR) install
@@ -92,11 +102,11 @@ build: check-tools ## Build backend binary and frontend assets
 	@$(MAKE) -C $(BACKEND_DIR) build
 	@$(MAKE) -C $(FRONTEND_DIR) build
 
-app-dev: check-tools ## Start the Wails desktop app in development mode
-	@go run github.com/wailsapp/wails/v2/cmd/wails@v2.12.0 dev
+app-dev: check-tools $(WAILS) ## Start the Wails desktop app in development mode
+	@$(WAILS) dev
 
-app-build: check-tools ## Build the macOS desktop app bundle with Wails
-	@go run github.com/wailsapp/wails/v2/cmd/wails@v2.12.0 build -platform darwin/universal
+app-build: check-tools $(WAILS) ## Build the macOS desktop app bundle with Wails
+	@$(WAILS) build -platform darwin/universal
 
 clean: ## Clean backend and frontend build artifacts
 	@$(MAKE) -C $(BACKEND_DIR) clean
