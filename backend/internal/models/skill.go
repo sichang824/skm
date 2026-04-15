@@ -2,6 +2,13 @@ package models
 
 import "time"
 
+type SkillRelation struct {
+	Mode        string   `json:"mode"`
+	FromPath    string   `json:"fromPath,omitempty"`
+	Files       []string `json:"files,omitempty"`
+	Directories []string `json:"directories,omitempty"`
+}
+
 type Skill struct {
 	BaseModel
 	ProviderID     uint           `gorm:"uniqueIndex:idx_skills_provider_root;index;not null" json:"-"`
@@ -25,4 +32,5 @@ type Skill struct {
 	ConflictKinds  []string       `gorm:"serializer:json" json:"conflictKinds"`
 	IsConflict     bool           `gorm:"index;not null;default:false" json:"isConflict"`
 	IsEffective    bool           `gorm:"index;not null;default:true" json:"isEffective"`
+	Relation       *SkillRelation `gorm:"-" json:"relation,omitempty"`
 }

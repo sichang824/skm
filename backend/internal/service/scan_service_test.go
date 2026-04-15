@@ -2,9 +2,11 @@ package service
 
 import (
 	"backend-go/internal/models"
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestDiscoverProviderFlagsMissingSkillAndNameMismatch(t *testing.T) {
@@ -97,5 +99,79 @@ Nested body`), 0o644); err != nil {
 	}
 	if skills[0].DirectoryName != "nested-skill" {
 		t.Fatalf("expected nested-skill directory, got %q", skills[0].DirectoryName)
+	}
+}
+
+func TestPersistScanDedupesDuplicateDiscoveredRoots(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewScanService(db)
+	provider := createTestProvider(t, db, "Agents Global", t.TempDir())
+	providerID := provider.ID
+	job := &models.ScanJob{
+		ProviderID: &providerID,
+		Scope:      "provider",
+		StartedAt:  time.Now(),
+		Status:     "running",
+		LogLines:   []string{},
+	}
+	if err := db.Create(job).Error; err != nil {
+		t.Fatalf("create scan job: %v", err)
+	}
+
+	rootPath := filepath.Join(provider.RootPath, "tdd-workflow")
+	skillMdPath := filepath.Join(rootPath, "SKILL.md")
+	modifiedAt := time.Now()
+	discovered := discoveredSkill{
+		RootPath:       rootPath,
+		SkillMdPath:    skillMdPath,
+		DirectoryName:  "tdd-workflow",
+		Name:           "tdd-workflow",
+		Slug:           "tdd-workflow",
+		Status:         "ready",
+		ContentHash:    "hash-1",
+		LastModifiedAt: &modifiedAt,
+		IssueCodes:     []string{},
+		Tags:           []string{},
+	}
+
+	_, addedCount, removedCount, changedCount, invalidCount, err := service.persistScan(context.Background(), provider, job, []discoveredSkill{discovered, discovered}, nil)
+	if err != nil {
+		t.Fatalf("persistScan returned error: %v", err)
+	}
+	if addedCount != 1 {
+		t.Fatalf("expected addedCount=1, got %d", addedCount)
+	}
+	if removedCount != 0 || changedCount != 0 || invalidCount != 0 {
+		t.Fatalf("unexpected counters removed=%d changed=%d invalid=%d", removedCount, changedCount, invalidCount)
+	}
+
+	var skills []models.Skill
+	if err := db.Where("provider_id = ?", provider.ID).Find(&skills).Error; err != nil {
+		t.Fatalf("load saved skills: %v", err)
+	}
+	if len(skills) != 1 {
+		t.Fatalf("expected 1 saved skill, got %d", len(skills))
+	}
+	if skills[0].RootPath != rootPath {
+		t.Fatalf("unexpected root path: got %q want %q", skills[0].RootPath, rootPath)
+	}
+	if skills[0].SkillMdPath != skillMdPath {
+		t.Fatalf("unexpected skill md path: got %q want %q", skills[0].SkillMdPath, skillMdPath)
+	}
+	if skills[0].LastScannedAt.IsZero() {
+		t.Fatal("expected LastScannedAt to be set")
+	}
+	if skills[0].ProviderID != provider.ID {
+		t.Fatalf("unexpected provider id: got %d want %d", skills[0].ProviderID, provider.ID)
+	}
+	if _, _, _, _, _, err := service.persistScan(context.Background(), provider, job, []discoveredSkill{discovered}, nil); err != nil {
+		t.Fatalf("persistScan should update existing record without error: %v", err)
+	}
+	var total int64
+	if err := db.Model(&models.Skill{}).Where("provider_id = ?", provider.ID).Count(&total).Error; err != nil {
+		t.Fatalf("count saved skills: %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("expected total skills=1 after re-persist, got %d", total)
 	}
 }

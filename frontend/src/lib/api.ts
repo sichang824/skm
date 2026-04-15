@@ -49,6 +49,14 @@ export interface Skill {
   isConflict: boolean;
   isEffective: boolean;
   provider?: Provider;
+  relation?: SkillRelation;
+}
+
+export interface SkillRelation {
+  mode: "from" | "to";
+  fromPath?: string;
+  files?: string[];
+  directories?: string[];
 }
 
 export interface FileNode {
@@ -98,7 +106,7 @@ export interface ScanRunResult {
 
 export interface SkillAttachInput {
   targetProviderZid: string;
-  mode: "move" | "link";
+  mode: "move" | "attach";
 }
 
 export interface SkillAttachScanJob {
@@ -108,7 +116,7 @@ export interface SkillAttachScanJob {
 
 export interface SkillAttachResult {
   skillZid: string;
-  mode: "move" | "link";
+  mode: "move" | "attach";
   sourceProvider: Provider;
   targetProvider: Provider;
   sourcePath: string;

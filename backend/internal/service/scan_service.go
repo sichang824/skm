@@ -149,6 +149,7 @@ func (s *ScanService) persistScan(ctx context.Context, provider *models.Provider
 	var removedCount int
 	var changedCount int
 	var invalidCount int
+	discoveredSkills = dedupeDiscoveredSkills(discoveredSkills)
 
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var existing []models.Skill
@@ -193,6 +194,7 @@ func (s *ScanService) persistScan(ctx context.Context, provider *models.Provider
 			if err := tx.Save(&record).Error; err != nil {
 				return wrapDiscoveredSkillError(discovered, "save skill record", err)
 			}
+			existingByRoot[record.RootPath] = record
 			skillIDsByRoot[record.RootPath] = record.ID
 		}
 
@@ -236,6 +238,28 @@ func (s *ScanService) persistScan(ctx context.Context, provider *models.Provider
 	})
 
 	return conflictCount, addedCount, removedCount, changedCount, invalidCount, err
+}
+
+func dedupeDiscoveredSkills(discoveredSkills []discoveredSkill) []discoveredSkill {
+	if len(discoveredSkills) < 2 {
+		return discoveredSkills
+	}
+	byRoot := make(map[string]discoveredSkill, len(discoveredSkills))
+	orderedRoots := make([]string, 0, len(discoveredSkills))
+	for _, discovered := range discoveredSkills {
+		rootPath := filepath.Clean(discovered.RootPath)
+		discovered.RootPath = rootPath
+		discovered.SkillMdPath = filepath.Clean(discovered.SkillMdPath)
+		if _, exists := byRoot[rootPath]; !exists {
+			orderedRoots = append(orderedRoots, rootPath)
+		}
+		byRoot[rootPath] = discovered
+	}
+	result := make([]discoveredSkill, 0, len(byRoot))
+	for _, rootPath := range orderedRoots {
+		result = append(result, byRoot[rootPath])
+	}
+	return result
 }
 
 func discoverProvider(provider *models.Provider) ([]discoveredSkill, []discoveredIssue, error) {

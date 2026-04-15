@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
-import { ArrowRightLeft, FolderInput, FolderTree, Link2, Search } from "lucide-react";
+import { ArrowRightLeft, Copy, FolderInput, FolderTree, Search } from "lucide-react";
 import { useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { SkillDetailDialog } from "../components/skm/SkillDetailDialog";
@@ -8,7 +8,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "..
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { api, type Provider, type Skill } from "../lib/api";
 
-type ProviderAttachMode = "move" | "link";
+type ProviderAttachMode = "move" | "attach";
 
 export function SkillsPage() {
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -193,7 +193,7 @@ export function SkillsPage() {
         mode: attachMode,
       });
       await loadSkills();
-      toast.success(`${pendingDragSkill.name} 已${attachMode === "move" ? "移动到" : "关联到"} ${pendingDropProvider.name}`);
+      toast.success(`${pendingDragSkill.name} 已${attachMode === "move" ? "移动到" : "复制关联到"} ${pendingDropProvider.name}`);
       closeAttachDialog(false);
     } catch (submitError) {
       toast.error(submitError instanceof Error ? submitError.message : "操作失败");
@@ -234,8 +234,8 @@ export function SkillsPage() {
 
       {error ? <p className="px-4 py-3 text-sm text-red-600">{error}</p> : null}
 
-      <div className="grid min-h-0 flex-1 gap-4 overflow-visible lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="skm-card min-h-0 overflow-visible">
+      <div className="grid min-h-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[280px_minmax(0,1fr)]">
+        <aside className="skm-card flex min-h-0 flex-col overflow-hidden">
           <div className="border-b border-slate-200 px-4 py-4">
             <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
               <FolderTree className="h-4 w-4 text-blue-600" />
@@ -243,7 +243,7 @@ export function SkillsPage() {
             </div>
             <p className="mt-1 text-xs text-slate-500">按 Provider 查看 Skills 分布与数量</p>
           </div>
-          <div className="max-h-full overflow-auto px-4 py-3">
+          <div className="min-h-0 flex-1 overflow-auto px-4 py-3">
             <Accordion type="single" collapsible defaultValue="providers" className="w-full">
               <AccordionItem value="providers" className="border-b-0">
                 <AccordionTrigger className="py-3 text-sm font-semibold text-slate-700 hover:no-underline">
@@ -290,7 +290,7 @@ export function SkillsPage() {
           </div>
         </aside>
 
-        <div className="skm-card min-h-0 overflow-hidden">
+        <div className="skm-card flex min-h-0 flex-col overflow-hidden">
           <div className="border-b border-slate-200 px-4 py-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
@@ -303,7 +303,7 @@ export function SkillsPage() {
               </div>
             </div>
           </div>
-          <div className="h-full overflow-auto">
+          <div className="min-h-0 flex-1 overflow-auto">
             <table className="w-full text-left text-sm whitespace-nowrap">
               <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-slate-600">
                 <tr>
@@ -373,8 +373,8 @@ export function SkillsPage() {
               <DialogTitle className="text-xl font-semibold text-slate-900">拖拽操作确认</DialogTitle>
               <DialogDescription className="text-sm text-slate-500">
                 {pendingDragSkill && pendingDropProvider
-                  ? `已将 ${pendingDragSkill.name} 拖到 ${pendingDropProvider.name}。请选择要执行的目录处理方式。`
-                  : "请选择要执行的目录处理方式。"}
+                  ? `已将 ${pendingDragSkill.name} 拖到 ${pendingDropProvider.name}。请选择移动或复制关联方式。`
+                  : "请选择移动或复制关联方式。"}
               </DialogDescription>
             </DialogHeader>
             {pendingDragSkill && pendingDropProvider ? (
@@ -396,12 +396,12 @@ export function SkillsPage() {
               onSelect={() => setAttachMode("move")}
             />
             <ActionModeCard
-              title="关联"
-              description="在目标 Provider 下建立目录链接，保留原目录位置，适合共享复用。"
-              icon={Link2}
-              selected={attachMode === "link"}
+              title="复制关联"
+              description="把源 Skill 的文件复制到目标 Provider，对应目录写入 .from，源目录维护 .to，默认覆盖同名文件。"
+              icon={Copy}
+              selected={attachMode === "attach"}
               accent="emerald"
-              onSelect={() => setAttachMode("link")}
+              onSelect={() => setAttachMode("attach")}
             />
           </div>
 
@@ -420,7 +420,7 @@ export function SkillsPage() {
               disabled={attachSubmitting}
               className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {attachSubmitting ? "处理中…" : `确认${attachMode === "move" ? "移动" : "关联"}`}
+              {attachSubmitting ? "处理中…" : `确认${attachMode === "move" ? "移动" : "复制关联"}`}
             </button>
           </DialogFooter>
         </DialogContent>

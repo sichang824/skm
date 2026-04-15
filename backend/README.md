@@ -78,12 +78,12 @@ GET  /api/skills/:zid/file-content?path=SKILL.md
 ```json
 {
 	"targetProviderZid": "PROV0001",
-	"mode": "move"
+	"mode": "attach"
 }
 ````
 
 - `mode=move`: 将 Skill 目录整体移动到目标 Provider 根目录后重扫源/目标 Provider。
-- `mode=link`: 在目标 Provider 根目录创建目录链接后重扫目标 Provider。
+- `mode=attach`: 将源 Skill 文件复制到目标 Provider 对应目录，目标目录写入 `.from`，源目录维护 `.to`，默认覆盖同名文件后重扫目标 Provider。
 
 ## 数据模型
 

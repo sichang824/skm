@@ -185,6 +185,18 @@ export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted }: SkillD
                 <span className="text-slate-500">状态</span>
                 <span className="text-right font-medium text-slate-700">{skill?.status ?? "unknown"}</span>
               </div>
+              {skill?.relation?.mode === "from" ? (
+                <div className="rounded border border-emerald-100 bg-emerald-50 px-2 py-2 text-xs text-emerald-700">
+                  <div className="font-medium">关联来源</div>
+                  <div className="mt-1 break-all font-mono text-[11px]">{skill.relation.fromPath}</div>
+                </div>
+              ) : null}
+              {skill?.relation?.mode === "to" ? (
+                <div className="rounded border border-blue-100 bg-blue-50 px-2 py-2 text-xs text-blue-700">
+                  <div className="font-medium">关联输出</div>
+                  <div className="mt-1">{`${skill.relation.directories?.length ?? 0} 个目录，${skill.relation.files?.length ?? 0} 个文件`}</div>
+                </div>
+              ) : null}
               {skill?.tags.length ? (
                 <div>
                   <div className="mb-1 text-slate-500">标签</div>
@@ -231,6 +243,27 @@ export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted }: SkillD
                     <>
                       <h2>Instructions</h2>
                       <pre><code>{skill.bodyMarkdown}</code></pre>
+                    </>
+                  ) : null}
+
+                  {skill.relation?.mode === "from" ? (
+                    <>
+                      <h2>关联来源</h2>
+                      <pre><code>{skill.relation.fromPath}</code></pre>
+                    </>
+                  ) : null}
+
+                  {skill.relation?.mode === "to" ? (
+                    <>
+                      <h2>关联文件</h2>
+                      <ul>
+                        {(skill.relation.files ?? []).map((file) => <li key={file}>{file}</li>)}
+                      </ul>
+
+                      <h2>关联目录</h2>
+                      <ul>
+                        {(skill.relation.directories ?? []).map((directory) => <li key={directory}>{directory}</li>)}
+                      </ul>
                     </>
                   ) : null}
 

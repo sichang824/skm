@@ -3,6 +3,7 @@ package service
 import (
 	"backend-go/internal/models"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -23,6 +24,25 @@ var (
 	ErrInvalidInput     = errors.New("invalid input")
 	ErrBinaryFile       = errors.New("binary file preview is not supported")
 )
+
+const (
+	skillRelationFromFile = ".from"
+	skillRelationToFile   = ".to"
+	skillAttachModeMove   = "move"
+	skillAttachModeAttach = "attach"
+)
+
+type skillRelationState struct {
+	FromPath string
+	To       skillToMetadata
+	HasFrom  bool
+	HasTo    bool
+}
+
+type skillToMetadata struct {
+	Files       []string `json:"files"`
+	Directories []string `json:"directories"`
+}
 
 type CatalogService struct {
 	db *gorm.DB
@@ -249,6 +269,9 @@ func (s *CatalogService) ListSkills(ctx context.Context, filters SkillListFilter
 		}
 		skills = filtered
 	}
+	for index := range skills {
+		skills[index].Relation = readSkillRelationForDisplay(skills[index].RootPath)
+	}
 	return skills, nil
 }
 
@@ -264,6 +287,7 @@ func (s *CatalogService) GetSkill(ctx context.Context, zid string) (*models.Skil
 		}
 		return nil, err
 	}
+	skill.Relation = readSkillRelationForDisplay(skill.RootPath)
 	return &skill, nil
 }
 
@@ -296,8 +320,8 @@ func (s *CatalogService) GetSkillFileContent(ctx context.Context, zid, relativeP
 
 func (s *CatalogService) AttachSkill(ctx context.Context, skillZid string, input SkillAttachInput) (*SkillAttachResult, error) {
 	mode := strings.ToLower(strings.TrimSpace(input.Mode))
-	if mode != "move" && mode != "link" {
-		return nil, fmt.Errorf("%w: mode must be move or link", ErrInvalidInput)
+	if mode != skillAttachModeMove && mode != skillAttachModeAttach {
+		return nil, fmt.Errorf("%w: mode must be move or attach", ErrInvalidInput)
 	}
 	if strings.TrimSpace(input.TargetProviderZid) == "" {
 		return nil, fmt.Errorf("%w: targetProviderZid is required", ErrInvalidInput)
@@ -327,17 +351,54 @@ func (s *CatalogService) AttachSkill(ctx context.Context, skillZid string, input
 		return nil, fmt.Errorf("%w: invalid target path", ErrInvalidInput)
 	}
 	if _, statErr := os.Lstat(targetPath); statErr == nil {
-		return nil, fmt.Errorf("%w: target path already exists", ErrInvalidInput)
+		if mode == skillAttachModeMove {
+			return nil, fmt.Errorf("%w: target path already exists", ErrInvalidInput)
+		}
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return nil, statErr
 	}
 
-	if mode == "move" {
+	if mode == skillAttachModeMove {
 		if err := moveDirectory(sourcePath, targetPath); err != nil {
 			return nil, err
 		}
+		if err := updateRelationsAfterMove(sourcePath, targetPath); err != nil {
+			return nil, err
+		}
 	} else {
-		if err := os.Symlink(sourcePath, targetPath); err != nil {
+		sourceRelation, err := readSkillRelationState(sourcePath)
+		if err != nil {
+			return nil, err
+		}
+		if sourceRelation.HasFrom {
+			return nil, fmt.Errorf("%w: source skill already has .from metadata", ErrInvalidInput)
+		}
+
+		targetRelation, err := readSkillRelationState(targetPath)
+		if err != nil {
+			return nil, err
+		}
+		if targetRelation.HasTo {
+			return nil, fmt.Errorf("%w: target skill already has .to metadata", ErrInvalidInput)
+		}
+
+		if err := copyDirectory(sourcePath, targetPath, copyDirectoryOptions{Overwrite: true, SkipRootFiles: map[string]struct{}{
+			skillRelationFromFile: {},
+			skillRelationToFile:   {},
+		}}); err != nil {
+			return nil, err
+		}
+
+		files, err := collectSkillFileList(sourcePath)
+		if err != nil {
+			return nil, err
+		}
+		sourceRelation.To.Files = files
+		sourceRelation.To.Directories = append(sourceRelation.To.Directories, targetPath)
+		if err := writeSkillToMetadata(sourcePath, sourceRelation.To); err != nil {
+			return nil, err
+		}
+		if err := writeSkillFromMetadata(targetPath, sourcePath); err != nil {
 			return nil, err
 		}
 	}
@@ -656,20 +717,32 @@ func moveDirectory(sourcePath, targetPath string) error {
 		return err
 	}
 
-	if err := copyDirectory(sourcePath, targetPath); err != nil {
+	if err := copyDirectory(sourcePath, targetPath, copyDirectoryOptions{}); err != nil {
 		_ = os.RemoveAll(targetPath)
 		return err
 	}
 	return os.RemoveAll(sourcePath)
 }
 
-func copyDirectory(sourcePath, targetPath string) error {
+type copyDirectoryOptions struct {
+	Overwrite     bool
+	SkipRootFiles map[string]struct{}
+}
+
+func copyDirectory(sourcePath, targetPath string, options copyDirectoryOptions) error {
 	info, err := os.Stat(sourcePath)
 	if err != nil {
 		return err
 	}
 	if !info.IsDir() {
 		return fmt.Errorf("%w: sourcePath must be a directory", ErrInvalidInput)
+	}
+	if existingInfo, statErr := os.Stat(targetPath); statErr == nil {
+		if !existingInfo.IsDir() {
+			return fmt.Errorf("%w: targetPath must be a directory", ErrInvalidInput)
+		}
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return statErr
 	}
 	if err := os.MkdirAll(targetPath, info.Mode().Perm()); err != nil {
 		return err
@@ -686,12 +759,20 @@ func copyDirectory(sourcePath, targetPath string) error {
 		if err != nil {
 			return err
 		}
+		if _, skip := options.SkipRootFiles[rel]; skip {
+			return nil
+		}
 		targetEntryPath := filepath.Join(targetPath, rel)
 		info, err := os.Lstat(path)
 		if err != nil {
 			return err
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
+			if options.Overwrite {
+				if err := os.RemoveAll(targetEntryPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+					return err
+				}
+			}
 			linkTarget, err := os.Readlink(path)
 			if err != nil {
 				return err
@@ -701,8 +782,158 @@ func copyDirectory(sourcePath, targetPath string) error {
 		if info.IsDir() {
 			return os.MkdirAll(targetEntryPath, info.Mode().Perm())
 		}
+		if err := os.MkdirAll(filepath.Dir(targetEntryPath), 0o755); err != nil {
+			return err
+		}
 		return copyFile(path, targetEntryPath, info.Mode().Perm())
 	})
+}
+
+func collectSkillFileList(rootPath string) ([]string, error) {
+	files := make([]string, 0)
+	err := filepath.Walk(rootPath, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == rootPath || info.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(rootPath, path)
+		if err != nil {
+			return err
+		}
+		if rel == skillRelationFromFile || rel == skillRelationToFile {
+			return nil
+		}
+		files = append(files, filepath.ToSlash(rel))
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
+func readSkillRelationForDisplay(rootPath string) *models.SkillRelation {
+	state, err := readSkillRelationState(rootPath)
+	if err != nil {
+		return nil
+	}
+	if state.HasFrom {
+		return &models.SkillRelation{Mode: "from", FromPath: state.FromPath}
+	}
+	if state.HasTo {
+		return &models.SkillRelation{Mode: "to", Files: append([]string{}, state.To.Files...), Directories: append([]string{}, state.To.Directories...)}
+	}
+	return nil
+}
+
+func readSkillRelationState(rootPath string) (skillRelationState, error) {
+	state := skillRelationState{}
+	fromPath := filepath.Join(rootPath, skillRelationFromFile)
+	fromData, err := os.ReadFile(fromPath)
+	if err == nil {
+		state.HasFrom = true
+		state.FromPath = strings.TrimSpace(string(fromData))
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return state, err
+	}
+
+	toPath := filepath.Join(rootPath, skillRelationToFile)
+	toData, err := os.ReadFile(toPath)
+	if err == nil {
+		state.HasTo = true
+		if unmarshalErr := json.Unmarshal(toData, &state.To); unmarshalErr != nil {
+			return state, fmt.Errorf("%w: invalid .to metadata", ErrInvalidInput)
+		}
+		state.To = normalizeSkillToMetadata(state.To)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return state, err
+	}
+
+	if state.HasFrom && state.HasTo {
+		return state, fmt.Errorf("%w: .from and .to cannot coexist", ErrInvalidInput)
+	}
+	return state, nil
+}
+
+func normalizeSkillToMetadata(metadata skillToMetadata) skillToMetadata {
+	metadata.Files = uniqueSortedStrings(metadata.Files)
+	metadata.Directories = uniqueSortedStrings(metadata.Directories)
+	return metadata
+}
+
+func writeSkillFromMetadata(rootPath, fromPath string) error {
+	if err := os.Remove(filepath.Join(rootPath, skillRelationToFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return os.WriteFile(filepath.Join(rootPath, skillRelationFromFile), []byte(filepath.Clean(fromPath)+"\n"), 0o644)
+}
+
+func writeSkillToMetadata(rootPath string, metadata skillToMetadata) error {
+	if err := os.Remove(filepath.Join(rootPath, skillRelationFromFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	metadata = normalizeSkillToMetadata(metadata)
+	data, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(filepath.Join(rootPath, skillRelationToFile), data, 0o644)
+}
+
+func updateRelationsAfterMove(sourcePath, targetPath string) error {
+	state, err := readSkillRelationState(targetPath)
+	if err != nil {
+		return err
+	}
+	if state.HasTo {
+		for _, directory := range state.To.Directories {
+			if err := writeSkillFromMetadata(directory, targetPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+	}
+	if !state.HasFrom {
+		return nil
+	}
+	sourceState, err := readSkillRelationState(state.FromPath)
+	if err != nil {
+		return err
+	}
+	if !sourceState.HasTo {
+		return nil
+	}
+	directories := make([]string, 0, len(sourceState.To.Directories))
+	for _, directory := range sourceState.To.Directories {
+		if filepath.Clean(directory) == filepath.Clean(sourcePath) {
+			directories = append(directories, targetPath)
+			continue
+		}
+		directories = append(directories, directory)
+	}
+	sourceState.To.Directories = directories
+	return writeSkillToMetadata(state.FromPath, sourceState.To)
+}
+
+func uniqueSortedStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		result = append(result, trimmed)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func copyFile(sourcePath, targetPath string, mode os.FileMode) error {

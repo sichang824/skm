@@ -3,8 +3,10 @@ package service
 import (
 	"backend-go/internal/models"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -46,7 +48,7 @@ func TestAttachSkillMoveMovesDirectory(t *testing.T) {
 	}
 }
 
-func TestAttachSkillLinkCreatesDiscoverableSymlink(t *testing.T) {
+func TestAttachSkillAttachCopiesFilesAndWritesRelationMetadata(t *testing.T) {
 	db := openCatalogTestDB(t)
 	service := NewCatalogService(db)
 	ctx := context.Background()
@@ -64,25 +66,112 @@ func TestAttachSkillLinkCreatesDiscoverableSymlink(t *testing.T) {
 	sourceProvider := createTestProvider(t, db, "Source Link", sourceRoot)
 	targetProvider := createTestProvider(t, db, "Target Link", targetRoot)
 	skill := createTestSkill(t, db, sourceProvider, filepath.Join(sourceRoot, "linked-skill"), "linked_skill")
+	if err := os.WriteFile(filepath.Join(skill.RootPath, "notes.md"), []byte("source copy"), 0o644); err != nil {
+		t.Fatalf("write notes.md: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(targetRoot, skill.DirectoryName), 0o755); err != nil {
+		t.Fatalf("mkdir target skill root: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(targetRoot, skill.DirectoryName, "notes.md"), []byte("stale"), 0o644); err != nil {
+		t.Fatalf("write stale notes.md: %v", err)
+	}
 
-	result, err := service.AttachSkill(ctx, skill.Zid, SkillAttachInput{TargetProviderZid: targetProvider.Zid, Mode: "link"})
+	result, err := service.AttachSkill(ctx, skill.Zid, SkillAttachInput{TargetProviderZid: targetProvider.Zid, Mode: "attach"})
 	if err != nil {
-		t.Fatalf("AttachSkill link returned error: %v", err)
+		t.Fatalf("AttachSkill attach returned error: %v", err)
 	}
 	info, err := os.Lstat(result.TargetPath)
 	if err != nil {
 		t.Fatalf("lstat target path: %v", err)
 	}
-	if info.Mode()&os.ModeSymlink == 0 {
-		t.Fatal("expected target path to be a symlink")
+	if !info.IsDir() {
+		t.Fatal("expected target path to be a directory")
+	}
+	content, err := os.ReadFile(filepath.Join(result.TargetPath, "notes.md"))
+	if err != nil {
+		t.Fatalf("read copied notes.md: %v", err)
+	}
+	if string(content) != "source copy" {
+		t.Fatalf("expected copied file content to be overwritten, got %q", string(content))
+	}
+	fromContent, err := os.ReadFile(filepath.Join(result.TargetPath, skillRelationFromFile))
+	if err != nil {
+		t.Fatalf("read .from: %v", err)
+	}
+	if got := strings.TrimSpace(string(fromContent)); got != skill.RootPath {
+		t.Fatalf("unexpected .from content: got %q want %q", got, skill.RootPath)
+	}
+	toContent, err := os.ReadFile(filepath.Join(skill.RootPath, skillRelationToFile))
+	if err != nil {
+		t.Fatalf("read .to: %v", err)
+	}
+	var metadata skillToMetadata
+	if err := json.Unmarshal(toContent, &metadata); err != nil {
+		t.Fatalf("unmarshal .to: %v", err)
+	}
+	if len(metadata.Directories) != 1 || metadata.Directories[0] != result.TargetPath {
+		t.Fatalf("unexpected .to directories: %#v", metadata.Directories)
+	}
+	if len(metadata.Files) != 2 || metadata.Files[0] != "SKILL.md" || metadata.Files[1] != "notes.md" {
+		t.Fatalf("unexpected .to files: %#v", metadata.Files)
+	}
+}
+
+func TestAttachSkillAttachAppendsTargetDirectories(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	baseDir := t.TempDir()
+	sourceRoot := filepath.Join(baseDir, "source")
+	targetRootA := filepath.Join(baseDir, "target-a")
+	targetRootB := filepath.Join(baseDir, "target-b")
+	for _, root := range []string{sourceRoot, targetRootA, targetRootB} {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatalf("mkdir root %s: %v", root, err)
+		}
 	}
 
-	roots, _, err := collectRecursiveSkillRoots(targetRoot)
-	if err != nil {
-		t.Fatalf("collectRecursiveSkillRoots returned error: %v", err)
+	sourceProvider := createTestProvider(t, db, "Source Attach", sourceRoot)
+	targetProviderA := createTestProvider(t, db, "Target Attach A", targetRootA)
+	targetProviderB := createTestProvider(t, db, "Target Attach B", targetRootB)
+	skill := createTestSkill(t, db, sourceProvider, filepath.Join(sourceRoot, "copied-skill"), "copied_skill")
+
+	if _, err := service.AttachSkill(ctx, skill.Zid, SkillAttachInput{TargetProviderZid: targetProviderA.Zid, Mode: "attach"}); err != nil {
+		t.Fatalf("first attach returned error: %v", err)
 	}
-	if len(roots) != 1 || roots[0] != result.TargetPath {
-		t.Fatalf("expected symlinked skill root to be discoverable, got %#v", roots)
+	secondResult, err := service.AttachSkill(ctx, skill.Zid, SkillAttachInput{TargetProviderZid: targetProviderB.Zid, Mode: "attach"})
+	if err != nil {
+		t.Fatalf("second attach returned error: %v", err)
+	}
+
+	toContent, err := os.ReadFile(filepath.Join(skill.RootPath, skillRelationToFile))
+	if err != nil {
+		t.Fatalf("read .to: %v", err)
+	}
+	var metadata skillToMetadata
+	if err := json.Unmarshal(toContent, &metadata); err != nil {
+		t.Fatalf("unmarshal .to: %v", err)
+	}
+	if len(metadata.Directories) != 2 {
+		t.Fatalf("expected 2 target directories, got %#v", metadata.Directories)
+	}
+	foundSecondTarget := false
+	for _, directory := range metadata.Directories {
+		if directory == secondResult.TargetPath {
+			foundSecondTarget = true
+			break
+		}
+	}
+	if !foundSecondTarget {
+		t.Fatalf("expected second target path %q in %#v", secondResult.TargetPath, metadata.Directories)
+	}
+	fromContent, err := os.ReadFile(filepath.Join(secondResult.TargetPath, skillRelationFromFile))
+	if err != nil {
+		t.Fatalf("read target .from: %v", err)
+	}
+	if strings.TrimSpace(string(fromContent)) != skill.RootPath {
+		t.Fatalf("unexpected target .from content: %q", string(fromContent))
 	}
 }
 
