@@ -102,6 +102,7 @@ func main() {
 		api.GET("/conflicts", scanHandler.ListConflicts)
 		api.GET("/skills", skillHandler.List)
 		api.GET("/skills/:zid", skillHandler.Get)
+		api.DELETE("/skills/:zid", skillHandler.Delete)
 		api.GET("/skills/:zid/files", skillHandler.Files)
 		api.GET("/skills/:zid/file-content", skillHandler.FileContent)
 		api.POST("/skills/:zid/attach", skillHandler.Attach)

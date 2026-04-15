@@ -116,6 +116,14 @@ export interface SkillAttachResult {
   jobs: SkillAttachScanJob[];
 }
 
+export interface SkillDeleteResult {
+  skillZid: string;
+  provider: Provider;
+  deletedPath: string;
+  deleted: boolean;
+  job?: ScanJob;
+}
+
 export interface ConflictGroup {
   kind: string;
   key: string;
@@ -202,6 +210,7 @@ export const api = {
   getSkills: (query: SkillQuery = {}) =>
     request<Skill[]>(`/api/skills${toQueryString(query)}`),
   getSkill: (zid: string) => request<Skill>(`/api/skills/${zid}`),
+  deleteSkill: (zid: string) => request<SkillDeleteResult>(`/api/skills/${zid}`, { method: "DELETE" }),
   attachSkill: (zid: string, input: SkillAttachInput) =>
     request<SkillAttachResult>(`/api/skills/${zid}/attach`, {
       method: "POST",

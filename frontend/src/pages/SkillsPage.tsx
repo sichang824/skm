@@ -362,7 +362,7 @@ export function SkillsPage() {
 
       {zid ? (
         <div className="absolute inset-4 z-20">
-          <SkillDetailDialog zid={zid} open={Boolean(zid)} onOpenChange={(open) => { if (!open) { navigate("/skills"); } }} />
+          <SkillDetailDialog zid={zid} open={Boolean(zid)} onOpenChange={(open) => { if (!open) { navigate("/skills"); } }} onDeleted={() => { void loadSkills(); }} />
         </div>
       ) : null}
 

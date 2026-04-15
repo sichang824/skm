@@ -98,6 +98,14 @@ type SkillAttachResult struct {
 	Jobs           []SkillAttachScanJob `json:"jobs,omitempty"`
 }
 
+type SkillDeleteResult struct {
+	SkillZid    string          `json:"skillZid"`
+	Provider    models.Provider `json:"provider"`
+	DeletedPath string          `json:"deletedPath"`
+	Deleted     bool            `json:"deleted"`
+	Job         *models.ScanJob `json:"job,omitempty"`
+}
+
 func NewCatalogService(db *gorm.DB) *CatalogService {
 	return &CatalogService{db: db}
 }
@@ -341,6 +349,32 @@ func (s *CatalogService) AttachSkill(ctx context.Context, skillZid string, input
 		TargetProvider: *targetProvider,
 		SourcePath:     sourcePath,
 		TargetPath:     targetPath,
+	}, nil
+}
+
+func (s *CatalogService) DeleteSkill(ctx context.Context, skillZid string) (*SkillDeleteResult, error) {
+	skill, err := s.GetSkill(ctx, skillZid)
+	if err != nil {
+		return nil, err
+	}
+
+	deletePath := filepath.Clean(skill.RootPath)
+	providerRoot := filepath.Clean(skill.Provider.RootPath)
+	if deletePath == providerRoot {
+		return nil, fmt.Errorf("%w: deleting provider root is not allowed", ErrInvalidInput)
+	}
+	if !pathWithinRoot(providerRoot, deletePath) {
+		return nil, fmt.Errorf("%w: skill rootPath is outside provider root", ErrInvalidInput)
+	}
+	if err := os.RemoveAll(deletePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+
+	return &SkillDeleteResult{
+		SkillZid:    skill.Zid,
+		Provider:    skill.Provider,
+		DeletedPath: deletePath,
+		Deleted:     true,
 	}, nil
 }
 

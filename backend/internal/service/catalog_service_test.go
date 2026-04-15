@@ -86,6 +86,32 @@ func TestAttachSkillLinkCreatesDiscoverableSymlink(t *testing.T) {
 	}
 }
 
+func TestDeleteSkillRemovesDirectory(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	baseDir := t.TempDir()
+	providerRoot := filepath.Join(baseDir, "provider")
+	if err := os.MkdirAll(providerRoot, 0o755); err != nil {
+		t.Fatalf("mkdir provider root: %v", err)
+	}
+
+	provider := createTestProvider(t, db, "Delete Provider", providerRoot)
+	skill := createTestSkill(t, db, provider, filepath.Join(providerRoot, "delete-me"), "delete_me")
+
+	result, err := service.DeleteSkill(ctx, skill.Zid)
+	if err != nil {
+		t.Fatalf("DeleteSkill returned error: %v", err)
+	}
+	if !result.Deleted {
+		t.Fatal("expected deleted result to be true")
+	}
+	if _, err := os.Stat(skill.RootPath); !os.IsNotExist(err) {
+		t.Fatalf("expected skill directory to be removed, stat err=%v", err)
+	}
+}
+
 func openCatalogTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "catalog-test.db")

@@ -1,21 +1,25 @@
 import { useEffect, useMemo, useState } from "react";
-import { Copy, FileText, FolderOpen, X } from "lucide-react";
+import { Copy, FileText, FolderOpen, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
 import { api, type FileNode, type Skill } from "../../lib/api";
 
 type SkillDetailDialogProps = {
   zid: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onDeleted?: () => void;
 };
 
-export function SkillDetailDialog({ zid, open, onOpenChange }: SkillDetailDialogProps) {
+export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted }: SkillDetailDialogProps) {
   const [skill, setSkill] = useState<Skill | null>(null);
   const [files, setFiles] = useState<FileNode[]>([]);
   const [selectedPath, setSelectedPath] = useState("SKILL.md");
   const [content, setContent] = useState("");
   const [loading, setLoading] = useState(false);
   const [previewError, setPreviewError] = useState("");
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -105,6 +109,24 @@ export function SkillDetailDialog({ zid, open, onOpenChange }: SkillDetailDialog
     }
   }
 
+  async function handleDeleteSkill() {
+    if (!zid || !skill) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      await api.deleteSkill(zid);
+      toast.success(`${skill.name} 已删除`);
+      setDeleteDialogOpen(false);
+      onDeleted?.();
+      onOpenChange(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "删除 Skill 失败");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   if (!open || !zid) {
     return null;
   }
@@ -135,6 +157,10 @@ export function SkillDetailDialog({ zid, open, onOpenChange }: SkillDetailDialog
           <button type="button" onClick={() => skill ? void copyText(skill.rootPath) : undefined} className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 shadow-sm transition-colors hover:text-blue-600">
             <FolderOpen className="h-3.5 w-3.5" />
             复制目录
+          </button>
+          <button type="button" onClick={() => setDeleteDialogOpen(true)} className="inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 shadow-sm transition-colors hover:bg-red-100" disabled={!skill || deleting}>
+            <Trash2 className="h-3.5 w-3.5" />
+            删除 Skill
           </button>
           <button type="button" onClick={() => onOpenChange(false)} className="inline-flex h-7 w-7 items-center justify-center rounded text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700" title="关闭">
             <X className="h-4 w-4" />
@@ -224,6 +250,38 @@ export function SkillDetailDialog({ zid, open, onOpenChange }: SkillDetailDialog
           </div>
         </section>
       </div>
+
+      <Dialog open={deleteDialogOpen} onOpenChange={(nextOpen) => { if (!deleting) { setDeleteDialogOpen(nextOpen); } }}>
+        <DialogContent className="max-w-md rounded-2xl border-red-100 bg-white p-0 shadow-[0_24px_90px_rgba(15,23,42,0.16)]" showCloseButton={false}>
+          <div className="px-6 py-5">
+            <DialogHeader className="gap-2 text-left">
+              <DialogTitle className="text-xl font-semibold text-slate-900">确认删除 Skill</DialogTitle>
+              <DialogDescription className="text-sm leading-6 text-red-600">
+                该操作会直接删除 Skill 目录。
+                {skill ? ` 删除后将移除 ${skill.name} 对应目录：${skill.rootPath}` : ""}
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+          <DialogFooter className="border-t border-slate-200 px-6 py-4 sm:justify-between">
+            <button
+              type="button"
+              onClick={() => setDeleteDialogOpen(false)}
+              disabled={deleting}
+              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleDeleteSkill()}
+              disabled={deleting}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {deleting ? "删除中…" : "确认删除目录"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
