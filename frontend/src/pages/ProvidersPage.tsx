@@ -1,12 +1,8 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Pen, RotateCw, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { Pen, Plus, RotateCw, Trash2, X } from "lucide-react";
 import { useOutletContext } from "react-router-dom";
 import { toast } from "sonner";
 import type { ShellOutletContext } from "../components/skm/ConsoleShell";
-import { Badge } from "../components/ui/badge";
-import { Button } from "../components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
-import { Input } from "../components/ui/input";
 import { api, type Provider, type ProviderInput, type ScanIssue, type Skill } from "../lib/api";
 
 const DEFAULT_PROVIDER: ProviderInput = {
@@ -25,6 +21,7 @@ export function ProvidersPage() {
   const [issues, setIssues] = useState<ScanIssue[]>([]);
   const [form, setForm] = useState<ProviderInput>(DEFAULT_PROVIDER);
   const [editingProviderZid, setEditingProviderZid] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -90,6 +87,7 @@ export function ProvidersPage() {
       }
       setForm(DEFAULT_PROVIDER);
       setEditingProviderZid(null);
+      setShowForm(false);
       await load();
     } catch (submitError) {
       toast.error(submitError instanceof Error ? submitError.message : "Create failed");
@@ -118,10 +116,11 @@ export function ProvidersPage() {
       if (editingProviderZid === provider.zid) {
         setEditingProviderZid(null);
         setForm(DEFAULT_PROVIDER);
+        setShowForm(false);
       }
       await load();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Delete failed");
+    } catch (deleteError) {
+      toast.error(deleteError instanceof Error ? deleteError.message : "Delete failed");
     }
   }
 
@@ -130,113 +129,136 @@ export function ProvidersPage() {
       await api.updateProvider(provider.zid, providerToInput({ ...provider, enabled: !provider.enabled }));
       toast.success(`${provider.name} 已${provider.enabled ? "停用" : "启用"}`);
       await load();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Update failed");
+    } catch (toggleError) {
+      toast.error(toggleError instanceof Error ? toggleError.message : "Update failed");
     }
   }
 
   function startEdit(provider: Provider) {
     setEditingProviderZid(provider.zid);
     setForm(providerToInput(provider));
+    setShowForm(true);
   }
 
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-8">
-      <div className="grid gap-6 xl:grid-cols-[0.86fr_1.14fr]">
-        <Card className="border-border/70 bg-white/82">
-          <CardHeader>
-            <CardTitle>{editingProviderZid ? "编辑 Provider" : "新增 Provider"}</CardTitle>
-            <CardDescription>支持新增、编辑、启停、删除和单独扫描。默认递归扫描。</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form className="grid gap-3" onSubmit={handleSubmit}>
-              <Input placeholder="名称" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
-              <Input placeholder="类型，如 workspace / repo" value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })} />
-              <Input placeholder="根目录绝对路径" value={form.rootPath} onChange={(event) => setForm({ ...form, rootPath: event.target.value })} />
-              <div className="grid gap-3 md:grid-cols-2">
-                <Input type="number" placeholder="优先级" value={String(form.priority)} onChange={(event) => setForm({ ...form, priority: Number(event.target.value) || 0 })} />
-                <select value={form.scanMode} onChange={(event) => setForm({ ...form, scanMode: event.target.value })} className="h-9 rounded-md border border-input bg-background px-3 text-sm">
-                  <option value="recursive">recursive</option>
-                  <option value="shallow">shallow</option>
-                </select>
-              </div>
-              <textarea
-                className="min-h-28 rounded-md border border-input bg-background px-3 py-2 text-sm"
-                placeholder="描述"
-                value={form.description}
-                onChange={(event) => setForm({ ...form, description: event.target.value })}
-              />
-              <label className="flex items-center gap-2 text-sm text-muted-foreground">
-                <input type="checkbox" checked={form.enabled} onChange={(event) => setForm({ ...form, enabled: event.target.checked })} />
-                启用后参与扫描与冲突计算
-              </label>
-              <div className="flex gap-3">
-                <Button type="submit" disabled={submitting}>{submitting ? "提交中…" : editingProviderZid ? "保存变更" : "创建 Provider"}</Button>
-                {editingProviderZid ? <Button type="button" variant="outline" onClick={() => { setEditingProviderZid(null); setForm(DEFAULT_PROVIDER); }}>取消编辑</Button> : null}
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border/70 bg-white/82">
-          <CardHeader>
-            <CardTitle>Provider 状态</CardTitle>
-            <CardDescription>显示每个 Provider 的递归扫描模式、技能数量和 latest issue 计数。</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4">
-            {error ? <p className="text-sm text-destructive">{error}</p> : null}
-            {loading ? (
-              <div className="text-sm text-muted-foreground">加载中…</div>
-            ) : (
-              providers.map((provider) => (
-                <div key={provider.zid} className="group rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="space-y-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h2 className="text-lg font-semibold">{provider.name}</h2>
-                        <Badge variant={provider.enabled ? "secondary" : "outline"}>{provider.enabled ? "enabled" : "disabled"}</Badge>
-                        <Badge variant="outline">{provider.scanMode}</Badge>
-                        <Badge variant="outline">priority {provider.priority}</Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground">{provider.rootPath}</p>
-                      {provider.description ? <p className="text-sm text-muted-foreground">{provider.description}</p> : null}
-                    </div>
-                    <div className="flex items-center gap-2 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100">
-                      <Button size="sm" variant="outline" onClick={() => void handleScan(provider)}><RotateCw className="h-4 w-4" />重扫</Button>
-                      <Button size="sm" variant="outline" onClick={() => startEdit(provider)}><Pen className="h-4 w-4" />编辑</Button>
-                      <Button size="sm" variant="outline" onClick={() => void handleDelete(provider)}><Trash2 className="h-4 w-4" />删除</Button>
-                    </div>
-                  </div>
-                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                    <InlineMetric label="Skills" value={skillCountByProvider.get(provider.zid) ?? 0} />
-                    <InlineMetric label="Latest Issues" value={issueCountByProvider.get(provider.zid) ?? 0} />
-                    <InlineMetric label="Last Status" value={provider.lastScanStatus || "never"} />
-                  </div>
-                  <div className="mt-3 flex items-center gap-2 text-sm text-slate-500">
-                    <input id={`enabled-${provider.zid}`} type="checkbox" checked={provider.enabled} onChange={() => void handleToggleEnabled(provider)} />
-                    <label htmlFor={`enabled-${provider.zid}`}>启用 Provider</label>
-                  </div>
-                  {provider.lastScanSummary ? (
-                    <div className="mt-3 rounded-xl bg-secondary/60 px-3 py-2 text-xs text-muted-foreground">
-                      {provider.lastScanSummary}
-                    </div>
-                  ) : null}
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="skm-section-title">Providers 管理</h2>
+        <button
+          type="button"
+          onClick={() => {
+            setShowForm((value) => !value);
+            if (showForm) {
+              setEditingProviderZid(null);
+              setForm(DEFAULT_PROVIDER);
+            }
+          }}
+          className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+        >
+          <Plus className="h-4 w-4" />
+          新增 Provider
+        </button>
       </div>
+
+      {showForm ? (
+        <section className="skm-card p-4">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-800">{editingProviderZid ? "编辑 Provider" : "新增 Provider"}</h3>
+              <p className="mt-1 text-xs text-slate-500">直接按 v2 数据模型维护 Provider，不保留旧流程。</p>
+            </div>
+            <button type="button" onClick={() => { setShowForm(false); setEditingProviderZid(null); setForm(DEFAULT_PROVIDER); }} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <form className="grid gap-3 md:grid-cols-2" onSubmit={handleSubmit}>
+            <input className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500" placeholder="名称" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
+            <input className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500" placeholder="类型，如 workspace / repo" value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })} />
+            <input className="md:col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500" placeholder="根目录绝对路径" value={form.rootPath} onChange={(event) => setForm({ ...form, rootPath: event.target.value })} />
+            <input className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500" type="number" placeholder="优先级" value={String(form.priority)} onChange={(event) => setForm({ ...form, priority: Number(event.target.value) || 0 })} />
+            <select value={form.scanMode} onChange={(event) => setForm({ ...form, scanMode: event.target.value })} className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-500">
+              <option value="recursive">recursive</option>
+              <option value="shallow">shallow</option>
+            </select>
+            <textarea
+              className="md:col-span-2 min-h-28 rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+              placeholder="描述"
+              value={form.description}
+              onChange={(event) => setForm({ ...form, description: event.target.value })}
+            />
+            <label className="flex items-center gap-2 text-sm text-slate-500">
+              <input type="checkbox" checked={form.enabled} onChange={(event) => setForm({ ...form, enabled: event.target.checked })} />
+              启用后参与扫描与冲突计算
+            </label>
+            <div className="flex items-center gap-3 md:justify-end">
+              <button type="submit" disabled={submitting} className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60">{submitting ? "提交中…" : editingProviderZid ? "保存变更" : "创建 Provider"}</button>
+              <button type="button" className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-600 transition-colors hover:bg-slate-50" onClick={() => { setShowForm(false); setEditingProviderZid(null); setForm(DEFAULT_PROVIDER); }}>取消</button>
+            </div>
+          </form>
+        </section>
+      ) : null}
+
+      <section className="skm-card overflow-hidden">
+        {error ? <p className="px-4 py-3 text-sm text-red-600">{error}</p> : null}
+        <table className="w-full text-left text-sm whitespace-nowrap">
+          <thead className="border-b border-slate-200 bg-slate-50 text-slate-600">
+            <tr>
+              <th className="px-4 py-2 font-medium w-12">启/停</th>
+              <th className="px-4 py-2 font-medium">名称</th>
+              <th className="px-4 py-2 font-medium">根目录路径</th>
+              <th className="px-4 py-2 font-medium">类型</th>
+              <th className="px-4 py-2 font-medium w-24">优先级</th>
+              <th className="px-4 py-2 font-medium w-40">最近扫描</th>
+              <th className="px-4 py-2 font-medium text-right w-28">操作</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {loading ? (
+              <tr>
+                <td colSpan={7} className="px-4 py-6 text-slate-400">加载中…</td>
+              </tr>
+            ) : providers.map((provider) => (
+              <tr key={provider.zid} className="hover:bg-slate-50 transition-colors">
+                <td className="px-4 py-3 text-center">
+                  <input type="checkbox" checked={provider.enabled} onChange={() => void handleToggleEnabled(provider)} className="h-4 w-4 cursor-pointer rounded border-slate-300 text-blue-600" />
+                </td>
+                <td className="px-4 py-3">
+                  <div className="font-medium text-slate-800">{provider.name}</div>
+                  <div className="mt-0.5 text-xs text-slate-500">{skillCountByProvider.get(provider.zid) ?? 0} skills · {issueCountByProvider.get(provider.zid) ?? 0} issues</div>
+                </td>
+                <td className="px-4 py-3 font-mono text-xs text-slate-500">{provider.rootPath}</td>
+                <td className="px-4 py-3"><span className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">{provider.type}</span></td>
+                <td className="px-4 py-3 text-center text-slate-700">{provider.priority}</td>
+                <td className="px-4 py-3 text-xs text-slate-500">
+                  <div>{provider.lastScanStatus || "never"}</div>
+                  <div className="mt-0.5">{provider.lastScannedAt ? formatTime(provider.lastScannedAt) : "未扫描"}</div>
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <div className="inline-flex items-center gap-1">
+                    <ActionIcon title="重新扫描" onClick={() => void handleScan(provider)}><RotateCw className="h-4 w-4" /></ActionIcon>
+                    <ActionIcon title="编辑" onClick={() => startEdit(provider)}><Pen className="h-4 w-4" /></ActionIcon>
+                    <ActionIcon title="删除" onClick={() => void handleDelete(provider)} danger><Trash2 className="h-4 w-4" /></ActionIcon>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {!loading && providers.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="px-4 py-10 text-center text-slate-500">当前没有 Provider</td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </section>
     </div>
   );
 }
 
-function InlineMetric({ label, value }: { label: string; value: number | string }) {
+function ActionIcon({ children, onClick, title, danger = false }: { children: ReactNode; onClick: () => void; title: string; danger?: boolean }) {
   return (
-    <div className="rounded-xl border border-border/60 bg-white/70 px-3 py-3">
-      <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{label}</div>
-      <div className="mt-2 text-2xl font-semibold text-foreground">{value}</div>
-    </div>
+    <button type="button" onClick={onClick} title={title} className={`inline-flex h-7 w-7 items-center justify-center rounded transition-colors ${danger ? "text-red-500 hover:bg-red-50" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800"}`}>
+      {children}
+    </button>
   );
 }
 
@@ -250,4 +272,13 @@ function providerToInput(provider: Provider): ProviderInput {
     scanMode: provider.scanMode,
     description: provider.description ?? "",
   };
+}
+
+function formatTime(value: string) {
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 }

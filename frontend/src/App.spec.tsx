@@ -61,9 +61,9 @@ describe("App", () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByRole("link", { name: /所有技能/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /来源管理/i })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /仪表盘/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Skills 目录/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Providers/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /系统大盘/i })).toBeInTheDocument();
   });
 
   it("renders providers page on /providers", () => {
@@ -75,7 +75,7 @@ describe("App", () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText(/新增 Provider/i)).toBeInTheDocument();
+    expect(screen.getByText(/Providers 管理/i)).toBeInTheDocument();
   });
 
   it("renders Not Found on unknown path", () => {
