@@ -18,6 +18,20 @@ The project currently consists of three parts:
 - Attach skill content to another provider and track `.to` and `.from` metadata
 - Support both browser-based development and a macOS desktop runtime
 
+## Preview
+
+### Dashboard
+
+![SKM dashboard](assets/dashboard.png)
+
+The dashboard surfaces provider counts, skill totals, latest issues, scan activity, and provider distribution in a single operational view.
+
+### Skills Catalog
+
+![SKM skills catalog](assets/skills.png)
+
+The skills catalog groups entries by provider, exposes related attached copies, and keeps browsing, filtering, and provider context in the same page.
+
 ## Design
 
 SKM is not intended to be a generic file browser. It is designed as an operating surface for skill-directory workflows. The current design focuses on three goals:

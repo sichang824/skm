@@ -18,6 +18,20 @@ SKM 是一个面向本地技能目录的 Skills Manager，用来扫描多个 Pro
 - 支持把技能内容按规则 attach 到其他 Provider，并追踪 `.to` / `.from` 元数据
 - 同时支持浏览器开发模式和 macOS 桌面应用模式
 
+## 界面预览
+
+### Dashboard
+
+![SKM dashboard](assets/dashboard.png)
+
+Dashboard 会集中展示 provider 数量、skills 总数、最新异常、扫描动态和来源分布，适合作为日常巡检入口。
+
+### Skills Catalog
+
+![SKM skills catalog](assets/skills.png)
+
+Skills 目录页支持按 provider 浏览技能，展开关联副本，并把筛选、检索和来源上下文放在同一页面里。
+
 ## Design
 
 SKM 的设计目标不是做一个通用文件浏览器，而是做一个围绕技能目录工作流的管理台。当前设计重点放在三件事上：
