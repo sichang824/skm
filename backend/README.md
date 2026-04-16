@@ -1,53 +1,63 @@
 # SKM Backend
 
-SKM 后端负责 Provider 管理、本地 skill 扫描、索引存储、异常识别、冲突检测，以及为前端提供统一 REST API。
+SKM 后端负责管理 Provider、扫描本地技能目录、建立索引、识别异常与冲突，并向前端或桌面宿主提供统一 REST API。
 
-## 当前能力
+## Responsibilities
 
-- Provider 增删改查、启用停用
+- Provider 的增删改查、启用停用和优先级管理
 - 单 Provider 扫描与全量扫描
-- Skill 列表、搜索、筛选、排序
-- Skill 详情、`SKILL.md` 内容、frontmatter、目录树、文本文件预览
-- 扫描历史、latest 问题视图、冲突分组、Dashboard 汇总
+- 技能元数据提取，包括 `SKILL.md`、frontmatter、目录树和文本文件内容
+- 冲突检测、问题聚合、Dashboard 统计
+- 技能 attach 同步和关联关系追踪
 
-## 运行
+## Requirements
+
+- Go 1.24+
+- SQLite for local development, or PostgreSQL if you want an external database
+
+## Run Locally
 
 ```bash
 cp .env.example .env
 make run
 ```
 
-默认启动地址：`http://localhost:8080`
+Default server address: `http://localhost:8080`
 
-如需首次自动写入默认 Provider，可设置：
+Seed default providers on startup:
 
 ```bash
 SEED=true make run
 ```
 
-如需只执行一次 seed 并立即退出，可直接运行：
+Seed once and exit:
 
 ```bash
 make seed
 ```
 
-如果从仓库根目录联调并希望启动时自动 seed，可运行：
+From the repository root, you can also start the full stack with seeded data:
 
 ```bash
 make dev/seed
 ```
 
-当前内置的默认 Provider 会按当前用户 home 目录检查这些路径，目录存在时才写入：
+## Configuration
 
-- `~/.workbuddy/skills`
-- `~/Workspace/skills`
-- `~/.agents/skills`
-- `~/.cursor/skills`
-- `~/.codex/skills`
+The default development config is defined in `.env.example`.
 
-## 主要接口
+- `PORT`: HTTP port
+- `LOG_LEVEL`: log verbosity
+- `DB_DRIVER`: `sqlite` or `postgres`
+- `DB_DSN`: database DSN
+- `SEED`: seed default providers on startup
+- `SEED_ONLY`: seed and exit without serving requests
 
-````bash
+When `SEED=true`, SKM checks a small set of common local skill directories under the current user's home directory and only inserts providers for paths that actually exist.
+
+## Core Endpoints
+
+```text
 GET  /healthz
 GET  /version
 
@@ -73,22 +83,27 @@ GET  /api/skills/:zid
 POST /api/skills/:zid/attach
 GET  /api/skills/:zid/files
 GET  /api/skills/:zid/file-content?path=SKILL.md
+```
 
-`POST /api/skills/:zid/attach` 请求体:
+Detailed request and response examples live in `../docs/frontend-api-contract.md`.
+
+## Attach Mode
+
+`POST /api/skills/:zid/attach` request body:
 
 ```json
 {
-	"targetProviderZid": "PROV0001",
-	"mode": "attach"
+  "targetProviderZid": "PROV0001",
+  "mode": "attach"
 }
-````
+```
 
-- `mode=move`: 将 Skill 目录整体移动到目标 Provider 根目录后重扫源/目标 Provider。
-- `mode=attach`: 将源 Skill 文件按 `.to` 中的 `include/exclude` 规则复制到目标 Provider 对应目录，目标目录写入 `.from`，源目录维护 `.to`，默认覆盖同名文件后重扫目标 Provider。
+- `mode=move`: move the whole skill directory into the target Provider, then rescan both sides
+- `mode=attach`: copy a filtered subset of files into the target Provider using `.to` include and exclude rules, write `.from` into the target, then rescan the target
 
-`GET /api/skills?grouped=true` 会把关联副本(`.from`)折叠到对应源 Skill(`.to`) 的 `relatedSkills` 字段下，适合列表页展开展示。
+When you call `GET /api/skills?grouped=true`, attached copies tracked by `.from` are folded under the source skill's `relatedSkills` field.
 
-`.to` 元数据示例:
+Example `.to` metadata:
 
 ```json
 {
@@ -98,30 +113,24 @@ GET  /api/skills/:zid/file-content?path=SKILL.md
 }
 ```
 
-- `directories`: 当前源 Skill 已同步到的目标目录列表。
-- `include`: 允许复制的 glob 规则，使用 `**` 递归匹配；为空时默认等同于 `"**"`。
-- `exclude`: 在 `include` 基础上额外排除的 glob 规则。
-
-## 数据模型
+## Data Model
 
 - `providers`
 - `skills`
 - `scan_jobs`
 - `scan_issues`
 
-数据库默认使用 SQLite，文件位于 `./data/app.db`。
+The default SQLite database file is `./data/app.db`.
 
-## 开发
+## Development
 
 ```bash
 make test
 make build
 ```
 
-前端联调 contract 与示例请求见 `../docs/frontend-api-contract.md`。
-
-欢迎提交 Issue 和 Pull Request！
+If you are working on the frontend at the same time, start from the repository root with `make dev`.
 
 ## License
 
-MIT
+MIT. See `../LICENSE`.

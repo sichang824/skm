@@ -1,105 +1,82 @@
 # SKM Frontend
 
-SKM 前端已经按 demo v1 的结构接通完整控制台：Dashboard、技能列表、技能详情弹窗、Provider 管理、异常与冲突页。
+SKM 前端提供 Skills Manager 的 Web 控制台，包括 Dashboard、技能浏览、Provider 管理、异常与冲突视图，以及与桌面宿主共用的单页应用界面。
 
-## 当前能力
+## Features
 
-- 左侧导航、顶部栏、全量扫描入口与通知提示
-- Dashboard：总览指标、最近扫描日志、Provider 分布、latest issues
-- Skills：表格列表、全局搜索、筛选、详情弹窗
-- Providers：新增、编辑、启停、删除、单独扫描
-- Issues：latest issues 列表、冲突组列表
+- Dashboard 汇总卡片、最近扫描记录和最新问题列表
+- 技能列表、搜索、筛选和详情弹窗
+- Provider 的新增、编辑、启停、删除和手动扫描
+- 异常列表与冲突分组视图
+- 兼容浏览器开发模式和 Wails 桌面模式
 
-## 🚀 Quick Start
+## Requirements
+
+- Node.js 20+
+- pnpm 10+
+
+## Quick Start
+
+Install dependencies:
 
 ```bash
-pnpm install
-
-# or use the Makefile wrapper
 make install
-
-# or start the full stack from the repo root
-cd ..
-make dev
-
-# then return to frontend-only mode if needed
-cd frontend
-make dev        # Start dev server
 ```
 
-Visit `http://localhost:5173` to see the app.
+Run frontend only:
 
-开发环境默认通过 Vite 代理访问后端 `http://localhost:8080`。如果不走代理，可设置：
+```bash
+make dev
+```
+
+Run the full stack from the repository root:
+
+```bash
+cd ..
+make dev
+```
+
+Default dev URL: `http://localhost:5173`
+
+## API Configuration
+
+In development, Vite proxies `/api` requests to `http://localhost:8080` by default.
+
+If you want to bypass the proxy, set:
 
 ```bash
 VITE_API_BASE_URL=http://localhost:8080
 ```
 
-如果你从仓库根目录启动联调，也可以直接覆盖代理目标：
+If you start the stack from the repository root with different ports, the root Makefile will pass the proxy target for you.
+
+## Routes
+
+- `/` and `/dashboard`: Dashboard
+- `/skills`: skills list
+- `/skills/:zid`: skill detail modal route
+- `/providers`: Provider management
+- `/issues`: issues and conflicts
+
+## Scripts
 
 ```bash
-BACKEND_PORT=18080 FRONTEND_PORT=4173 make dev
+make install   # install dependencies
+make dev       # start Vite dev server
+make preview   # preview the production build
+make test      # run tests
+make lint      # run ESLint
+make type-check
+make build     # production build
+make clean     # remove dist
 ```
 
-This project uses `pnpm` as the package manager.
+Vitest, Testing Library and jsdom are used for UI tests.
 
-## 路由
+## API Contract
 
-- `/` 或 `/dashboard`: Dashboard
-- `/skills`: 技能列表页
-- `/skills/:zid`: 技能详情弹窗路由
-- `/providers`: Provider 页
-- `/issues`: 异常与冲突页
+See `../docs/frontend-api-contract.md` for endpoint mapping and example payloads.
 
-## 联调文档
+## Notes
 
-完整 API contract 和示例请求见 `../docs/frontend-api-contract.md`。
-
-## 常用命令
-
-```bash
-# Development
-make dev              # Start dev server
-make preview          # Preview production build
-
-# Testing
-make test             # Run tests once
-make test-watch       # Run tests in watch mode
-make test-ui          # Run tests with UI
-
-# Code Quality
-make lint             # Check code with ESLint
-make lint-fix         # Fix ESLint issues
-make format           # Format code with Prettier
-make type-check       # TypeScript type checking
-
-# Build
-make build            # Production build
-make build-analyze    # Build with bundle analyzer
-
-# Cleanup
-make clean            # Remove dist folder
-make clean-all        # Remove node_modules and dist
-```
-
-## 🧪 Testing
-
-```bash
-make test           # Run all tests
-make test-watch     # Watch mode
-make test-ui        # Interactive UI
-```
-
-Tests are configured with Vitest + Testing Library + jsdom.
-
-## 构建产物
-
-After building, open `dist/stats.html` to visualize your bundle:
-
-```bash
-make build-analyze
-```
-
-## 说明
-
-这套前端当前不引入额外数据层，直接使用 `fetch` + 本地组件状态联调后端接口。
+The frontend intentionally uses a thin data layer based on `fetch` and local component state so that API behavior stays easy to trace during development.
