@@ -142,9 +142,50 @@ make reset         # 删除本地 SQLite 数据库文件
 make seed          # 一次性写入默认 providers 后退出
 make test          # 运行前后端测试
 make build         # 构建后端二进制和前端产物
+make cli-build     # 构建 skm CLI 二进制
+make cli-install   # 安装 skm CLI 到 ~/.local/bin
 make app-dev       # 启动 Wails 桌面开发模式
 make app-build     # 构建 macOS 桌面应用
 ```
+
+## CLI
+
+SKM 现在也提供 CLI，和桌面版共用同一套数据库与后端服务能力。
+
+构建 CLI：
+
+```bash
+make cli-build
+```
+
+安装到 `~/.local/bin`：
+
+```bash
+make cli-install
+```
+
+示例命令：
+
+```bash
+skm version
+skm dashboard
+skm providers
+skm providers add --name "Workspace Skills" --type workspace --root ~/Workspace/skills
+skm providers update PROV0001 --priority 400 --description "main workspace provider"
+skm providers delete PROV0001
+skm skills --provider "Workspace Skills"
+skm skills get SKIL0001
+skm skills to --provider PROV0002 --include README.md --include scripts/** --exclude plugins/**
+skm skills link SKIL0001 --to PROV0002
+skm skills move SKIL0001 --to PROV0003
+skm skills sync SKIL0002
+skm skills delete SKIL0002
+skm issues --view latest
+skm scan all
+skm scan provider PROV0001
+```
+
+桌面版侧边栏的运行状态卡片现在也提供 `Install CLI` 按钮，会把随 app 打包的 CLI 安装到 `~/.local/bin/skm`。
 
 ## API Overview
 

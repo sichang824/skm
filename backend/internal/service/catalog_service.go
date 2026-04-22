@@ -114,6 +114,22 @@ type SkillAttachInput struct {
 	Mode              string `json:"mode"`
 }
 
+type SkillToInput struct {
+	RootPath     string   `json:"rootPath"`
+	ProviderPath string   `json:"providerPath,omitempty"`
+	Directories  []string `json:"directories,omitempty"`
+	Include      []string `json:"include,omitempty"`
+	Exclude      []string `json:"exclude,omitempty"`
+}
+
+type SkillToResult struct {
+	RootPath        string                `json:"rootPath"`
+	FilePath        string                `json:"filePath"`
+	Provider        *models.Provider      `json:"provider,omitempty"`
+	ProviderCreated bool                  `json:"providerCreated"`
+	Relation        *models.SkillRelation `json:"relation,omitempty"`
+}
+
 type SkillAttachScanJob struct {
 	ProviderZid string         `json:"providerZid"`
 	Job         models.ScanJob `json:"job"`
@@ -550,6 +566,149 @@ func (s *CatalogService) SyncSkill(ctx context.Context, skillZid string) (*Skill
 		TargetPath: targetPath,
 		Synced:     true,
 	}, nil
+}
+
+func (s *CatalogService) ConfigureSkillTo(ctx context.Context, input SkillToInput) (*SkillToResult, error) {
+	rootPath := strings.TrimSpace(input.RootPath)
+	if rootPath == "" {
+		return nil, fmt.Errorf("%w: rootPath is required", ErrInvalidInput)
+	}
+	absRoot, err := filepath.Abs(rootPath)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid rootPath", ErrInvalidInput)
+	}
+	info, err := os.Stat(absRoot)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("%w: rootPath must be a directory", ErrInvalidInput)
+	}
+	if _, err := os.Stat(filepath.Join(absRoot, "SKILL.md")); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("%w: SKILL.md not found in rootPath", ErrInvalidInput)
+		}
+		return nil, err
+	}
+
+	state, err := readSkillRelationState(absRoot)
+	if err != nil {
+		return nil, err
+	}
+	if state.HasFrom {
+		return nil, fmt.Errorf("%w: attached copies cannot own .to metadata", ErrInvalidInput)
+	}
+
+	metadata := state.To
+	providerPath := strings.TrimSpace(input.ProviderPath)
+	if providerPath == "" {
+		providerPath = absRoot
+	}
+	absProviderPath, err := filepath.Abs(providerPath)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid providerPath", ErrInvalidInput)
+	}
+	if err := validateDirectory(absProviderPath); err != nil {
+		return nil, fmt.Errorf("%w: providerPath is not accessible", ErrInvalidInput)
+	}
+	absProviderPath = filepath.Clean(absProviderPath)
+	if !pathWithinRoot(absProviderPath, absRoot) {
+		return nil, fmt.Errorf("%w: providerPath must be the current directory or a parent directory", ErrInvalidInput)
+	}
+
+	provider, created, err := s.ensureProviderForSkillRoot(ctx, absRoot, absProviderPath)
+	if err != nil {
+		return nil, err
+	}
+	result := &SkillToResult{
+		RootPath:        absRoot,
+		FilePath:        filepath.Join(absRoot, skillRelationToFile),
+		Provider:        provider,
+		ProviderCreated: created,
+	}
+
+	for _, directory := range input.Directories {
+		trimmed := strings.TrimSpace(directory)
+		if trimmed == "" {
+			continue
+		}
+		absDirectory, err := filepath.Abs(trimmed)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid directory %q", ErrInvalidInput, directory)
+		}
+		metadata.Directories = append(metadata.Directories, absDirectory)
+	}
+	if len(input.Include) > 0 {
+		metadata.Include = append([]string{}, input.Include...)
+	}
+	if len(input.Exclude) > 0 {
+		metadata.Exclude = append([]string{}, input.Exclude...)
+	}
+	metadata = normalizeSkillToMetadata(metadata)
+	if err := writeSkillToMetadata(absRoot, metadata); err != nil {
+		return nil, err
+	}
+	result.Relation = &models.SkillRelation{
+		Mode:        "to",
+		Directories: append([]string{}, metadata.Directories...),
+		Include:     append([]string{}, metadata.Include...),
+		Exclude:     append([]string{}, metadata.Exclude...),
+	}
+	return result, nil
+}
+
+func (s *CatalogService) ensureProviderForSkillRoot(ctx context.Context, skillRoot, providerPath string) (*models.Provider, bool, error) {
+	providers, err := s.ListProviders(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	for index := range providers {
+		if pathWithinRoot(providers[index].RootPath, skillRoot) {
+			return &providers[index], false, nil
+		}
+	}
+
+	providerName, err := s.nextProviderName(ctx, filepath.Base(providerPath))
+	if err != nil {
+		return nil, false, err
+	}
+	provider, err := s.CreateProvider(ctx, ProviderInput{
+		Name:     providerName,
+		Type:     "workspace",
+		RootPath: providerPath,
+		Enabled:  true,
+		Priority: 100,
+		ScanMode: "recursive",
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	return provider, true, nil
+}
+
+func (s *CatalogService) nextProviderName(ctx context.Context, base string) (string, error) {
+	base = strings.TrimSpace(base)
+	if base == "" || base == string(filepath.Separator) || base == "." {
+		base = "provider"
+	}
+
+	providers, err := s.ListProviders(ctx)
+	if err != nil {
+		return "", err
+	}
+	used := make(map[string]struct{}, len(providers))
+	for _, provider := range providers {
+		used[strings.ToLower(provider.Name)] = struct{}{}
+	}
+	if _, exists := used[strings.ToLower(base)]; !exists {
+		return base, nil
+	}
+	for index := 2; ; index++ {
+		candidate := fmt.Sprintf("%s (%d)", base, index)
+		if _, exists := used[strings.ToLower(candidate)]; !exists {
+			return candidate, nil
+		}
+	}
 }
 
 func (s *CatalogService) ListScanJobs(ctx context.Context) ([]models.ScanJob, error) {
@@ -1055,7 +1214,10 @@ func normalizeSkillToMetadata(metadata skillToMetadata) skillToMetadata {
 	metadata.Include = uniqueSortedPatterns(metadata.Include)
 	metadata.Exclude = uniqueSortedPatterns(metadata.Exclude)
 	if len(metadata.Include) == 0 {
-		metadata.Include = []string{"**"}
+		metadata.Include = []string{"README.md", "SKILL.md"}
+	}
+	if len(metadata.Exclude) == 0 {
+		metadata.Exclude = []string{"**/.DS_Store"}
 	}
 	metadata.LegacyFiles = nil
 	return metadata

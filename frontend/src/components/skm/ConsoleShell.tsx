@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Boxes, FolderTree, Gauge, Radar, Settings, ShieldAlert } from "lucide-react";
+import { Boxes, FolderTree, Gauge, Radar, Settings, ShieldAlert, Terminal } from "lucide-react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "../../lib/api";
@@ -29,6 +29,10 @@ export function ConsoleShell() {
   const [issueCount, setIssueCount] = useState(0);
   const [isScanning, setIsScanning] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [cliInstalled, setCliInstalled] = useState(false);
+  const [cliAvailable, setCliAvailable] = useState(false);
+  const [cliPath, setCliPath] = useState("");
+  const [isInstallingCLI, setIsInstallingCLI] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -54,6 +58,39 @@ export function ConsoleShell() {
     };
   }, [refreshKey]);
 
+  useEffect(() => {
+    let active = true;
+    if (!isDesktopShell) {
+      return () => {
+        active = false;
+      };
+    }
+
+    async function loadCLIStatus() {
+      try {
+        const status = await api.getDesktopCLIStatus();
+        if (!active) {
+          return;
+        }
+        setCliAvailable(status.available);
+        setCliInstalled(status.installed);
+        setCliPath(status.installedPath);
+      } catch {
+        if (!active) {
+          return;
+        }
+        setCliAvailable(false);
+        setCliInstalled(false);
+        setCliPath("");
+      }
+    }
+
+    void loadCLIStatus();
+    return () => {
+      active = false;
+    };
+  }, [isDesktopShell]);
+
   const currentTitle = useMemo(() => {
     if (location.pathname.startsWith("/skills/")) {
       return "Skills / Detail";
@@ -74,6 +111,24 @@ export function ConsoleShell() {
       toast.error(error instanceof Error ? error.message : "全量扫描失败");
     } finally {
       setIsScanning(false);
+    }
+  }
+
+  async function handleInstallCLI() {
+    if (!isDesktopShell || isInstallingCLI) {
+      return;
+    }
+    setIsInstallingCLI(true);
+    try {
+      const result = await api.installDesktopCLI();
+      setCliInstalled(true);
+      setCliAvailable(true);
+      setCliPath(result.installedPath);
+      toast.success(result.replaced ? "CLI 已更新" : "CLI 已安装");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "CLI 安装失败");
+    } finally {
+      setIsInstallingCLI(false);
     }
   }
 
@@ -124,6 +179,31 @@ export function ConsoleShell() {
                 <span className="inline-block h-2 w-2 rounded-full bg-green-500" />
                 Provider watch 已连接
               </div>
+              {isDesktopShell ? (
+                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="flex items-center gap-2 font-medium text-slate-700">
+                      <Terminal className="h-3.5 w-3.5 text-blue-600" />
+                      CLI
+                    </span>
+                    <span className={`rounded-full px-2 py-0.5 ${cliInstalled ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>
+                      {cliInstalled ? "已安装" : "未安装"}
+                    </span>
+                  </div>
+                  <div className="mt-1 break-all text-[11px] text-slate-400">
+                    {cliPath || "~/.local/bin/skm"}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleInstallCLI()}
+                    disabled={!cliAvailable || isInstallingCLI}
+                    className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <Terminal className={`h-4 w-4 ${isInstallingCLI ? "animate-pulse" : ""}`} />
+                    {isInstallingCLI ? "安装中..." : cliInstalled ? "重新安装 CLI" : "Install CLI"}
+                  </button>
+                </div>
+              ) : null}
               <button
                 type="button"
                 onClick={() => void handleScanAll()}

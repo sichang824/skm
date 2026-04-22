@@ -407,6 +407,11 @@ func collectShallowSkillRoots(rootPath string) ([]string, []discoveredIssue, err
 	}
 	results := make([]string, 0, len(entries))
 	issues := make([]discoveredIssue, 0)
+	if hasSkillMD, err := directoryHasSkillMD(rootPath); err != nil {
+		return nil, nil, err
+	} else if hasSkillMD {
+		results = append(results, rootPath)
+	}
 	for _, entry := range entries {
 		if isIgnoredName(entry.Name()) {
 			continue
@@ -438,6 +443,11 @@ func collectShallowSkillRoots(rootPath string) ([]string, []discoveredIssue, err
 
 func collectRecursiveSkillRoots(rootPath string) ([]string, []discoveredIssue, error) {
 	results := make([]string, 0)
+	if hasSkillMD, err := directoryHasSkillMD(rootPath); err != nil {
+		return nil, nil, err
+	} else if hasSkillMD {
+		results = append(results, rootPath)
+	}
 	err := filepath.WalkDir(rootPath, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -494,6 +504,17 @@ func isDirectoryLike(path string, entry fs.DirEntry) (bool, error) {
 		return false, err
 	}
 	return info.IsDir(), nil
+}
+
+func directoryHasSkillMD(dirPath string) (bool, error) {
+	_, err := os.Stat(filepath.Join(dirPath, "SKILL.md"))
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return false, err
 }
 
 func skillChanged(existing models.Skill, discovered discoveredSkill) bool {

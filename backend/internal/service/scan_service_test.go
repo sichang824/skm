@@ -3,6 +3,7 @@ package service
 import (
 	"backend-go/internal/models"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -99,6 +100,76 @@ Nested body`), 0o644); err != nil {
 	}
 	if skills[0].DirectoryName != "nested-skill" {
 		t.Fatalf("expected nested-skill directory, got %q", skills[0].DirectoryName)
+	}
+}
+
+func TestDiscoverProviderShallowIncludesRootSkill(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "root-skill")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("mkdir root skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte(fmt.Sprintf(`---
+name: root-skill
+category: workspace
+---
+
+Root body`)), 0o644); err != nil {
+		t.Fatalf("write root SKILL.md: %v", err)
+	}
+
+	skills, issues, err := discoverProvider(&models.Provider{RootPath: root, ScanMode: "shallow"})
+	if err != nil {
+		t.Fatalf("discoverProvider returned error: %v", err)
+	}
+	if len(issues) != 0 {
+		t.Fatalf("expected no issues, got %d", len(issues))
+	}
+	if len(skills) != 1 {
+		t.Fatalf("expected 1 discovered skill, got %d", len(skills))
+	}
+	if skills[0].RootPath != root {
+		t.Fatalf("expected root skill path %q, got %q", root, skills[0].RootPath)
+	}
+}
+
+func TestDiscoverProviderRecursiveIncludesRootAndNestedSkills(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "root-skill")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("mkdir root skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte(fmt.Sprintf(`---
+name: root-skill
+category: workspace
+---
+
+Root body`)), 0o644); err != nil {
+		t.Fatalf("write root SKILL.md: %v", err)
+	}
+	nestedSkillDir := filepath.Join(root, "catalog", "nested-skill")
+	if err := os.MkdirAll(nestedSkillDir, 0o755); err != nil {
+		t.Fatalf("mkdir nested skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(nestedSkillDir, "SKILL.md"), []byte(`---
+name: Nested Skill
+category: catalog
+---
+
+Nested body`), 0o644); err != nil {
+		t.Fatalf("write nested SKILL.md: %v", err)
+	}
+
+	skills, issues, err := discoverProvider(&models.Provider{RootPath: root, ScanMode: "recursive"})
+	if err != nil {
+		t.Fatalf("discoverProvider returned error: %v", err)
+	}
+	if len(issues) != 0 {
+		t.Fatalf("expected no issues, got %d", len(issues))
+	}
+	if len(skills) != 2 {
+		t.Fatalf("expected 2 discovered skills, got %d", len(skills))
+	}
+	if skills[0].RootPath != root && skills[1].RootPath != root {
+		t.Fatalf("expected root skill %q to be discovered", root)
 	}
 }
 

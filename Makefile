@@ -6,6 +6,7 @@ DB_FILE := $(BACKEND_DIR)/data/app.db
 TOOLS_BIN_DIR := .tools/bin
 WAILS := $(TOOLS_BIN_DIR)/wails
 WAILS_VERSION := v2.12.0
+CLI_BIN := build/bin/skm
 
 BACKEND_PORT ?= 8080
 FRONTEND_PORT ?= 5173
@@ -16,7 +17,7 @@ FRONTEND_URL := http://localhost:$(FRONTEND_PORT)
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check-tools install reset seed dev dev/seed dev-backend dev-frontend test build clean app-dev app-build wails-cli
+.PHONY: help check-tools install reset seed dev dev/seed dev-backend dev-frontend test build clean app-dev app-build wails-cli cli-build cli-install
 
 help: ## Show available workspace commands
 	@echo "SKM workspace commands"
@@ -102,11 +103,28 @@ build: check-tools ## Build backend binary and frontend assets
 	@$(MAKE) -C $(BACKEND_DIR) build
 	@$(MAKE) -C $(FRONTEND_DIR) build
 
+cli-build: check-tools ## Build the skm CLI binary
+	@mkdir -p build/bin
+	@cd $(BACKEND_DIR) && go build -o ../$(CLI_BIN) ./cmd/skm
+
+cli-install: cli-build ## Install the skm CLI to ~/.local/bin
+	@mkdir -p $(HOME)/.local/bin
+	@cp $(CLI_BIN) $(HOME)/.local/bin/skm
+	@echo "Installed skm to $(HOME)/.local/bin/skm"
+
 app-dev: check-tools $(WAILS) ## Start the Wails desktop app in development mode
 	@$(WAILS) dev
 
 app-build: check-tools $(WAILS) ## Build the macOS desktop app bundle with Wails
 	@$(WAILS) build -platform darwin/universal
+	@app_bundle=$$(find build -maxdepth 4 -type d -name '*.app' | head -n 1); \
+	if [ -n "$$app_bundle" ]; then \
+		mkdir -p "$$app_bundle/Contents/Resources"; \
+		cd $(BACKEND_DIR) && go build -o ../"$$app_bundle"/Contents/Resources/skm ./cmd/skm; \
+		echo "Bundled CLI into $$app_bundle/Contents/Resources/skm"; \
+	else \
+		echo "Warning: app bundle not found, skipped CLI bundling"; \
+	fi
 
 clean: ## Clean backend and frontend build artifacts
 	@$(MAKE) -C $(BACKEND_DIR) clean

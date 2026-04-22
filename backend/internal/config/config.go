@@ -56,12 +56,12 @@ func loadEnvFiles() {
 }
 
 func defaultDBDSN() string {
-	candidates := []string{"./data/app.db", "./backend/data/app.db"}
-	for _, candidate := range candidates {
-		dir := filepath.Dir(candidate)
-		if info, err := os.Stat(dir); err == nil && info.IsDir() {
-			return candidate
-		}
+	if dsn, ok := defaultWorkspaceDBDSN(); ok {
+		return dsn
+	}
+
+	if root := projectRootFromExecutable(); root != "" {
+		return filepath.Join(root, "backend", "data", "app.db")
 	}
 
 	if userDBPath, err := defaultUserDBPath(); err == nil {
@@ -94,21 +94,12 @@ func resolveDSN(driver, dsn string) (string, error) {
 }
 
 func sqliteBaseDir(dsn string) string {
-	for _, candidate := range []string{"./backend/data", "./data"} {
-		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
-			return "."
-		}
+	if _, ok := defaultWorkspaceDBDSN(); ok {
+		return "."
 	}
 
 	if root := projectRootFromExecutable(); root != "" {
-		for _, candidate := range []string{
-			filepath.Join(root, "backend", "data"),
-			filepath.Join(root, "data"),
-		} {
-			if info, err := os.Stat(candidate); err == nil && info.IsDir() {
-				return root
-			}
-		}
+		return root
 	}
 
 	if userDBPath, err := defaultUserDBPath(); err == nil {
@@ -116,6 +107,40 @@ func sqliteBaseDir(dsn string) string {
 	}
 
 	return "."
+}
+
+func defaultWorkspaceDBDSN() (string, bool) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", false
+	}
+
+	if isBackendWorkspaceDir(wd) {
+		return "./data/app.db", true
+	}
+	if isRepoWorkspaceDir(wd) {
+		return "./backend/data/app.db", true
+	}
+
+	return "", false
+}
+
+func isRepoWorkspaceDir(dir string) bool {
+	return fileExists(filepath.Join(dir, "wails.json")) && dirExists(filepath.Join(dir, "backend", "data"))
+}
+
+func isBackendWorkspaceDir(dir string) bool {
+	return fileExists(filepath.Join(dir, "go.mod")) && dirExists(filepath.Join(dir, "data"))
+}
+
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
 
 func projectRootFromExecutable() string {

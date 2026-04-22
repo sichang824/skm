@@ -142,9 +142,50 @@ make reset         # Remove local SQLite database files
 make seed          # Seed default providers and exit
 make test          # Run backend and frontend tests
 make build         # Build backend binary and frontend assets
+make cli-build     # Build the skm CLI binary
+make cli-install   # Install the skm CLI to ~/.local/bin
 make app-dev       # Run the Wails desktop app in dev mode
 make app-build     # Build the macOS desktop app
 ```
+
+## CLI
+
+SKM also ships a CLI that uses the same database and backend services as the desktop app.
+
+Build it:
+
+```bash
+make cli-build
+```
+
+Install it into `~/.local/bin`:
+
+```bash
+make cli-install
+```
+
+Commands:
+
+```bash
+skm version
+skm dashboard
+skm providers
+skm providers add --name "Workspace Skills" --type workspace --root ~/Workspace/skills
+skm providers update PROV0001 --priority 400 --description "main workspace provider"
+skm providers delete PROV0001
+skm skills --provider "Workspace Skills"
+skm skills get SKIL0001
+skm skills to --provider PROV0002 --include README.md --include scripts/** --exclude plugins/**
+skm skills link SKIL0001 --to PROV0002
+skm skills move SKIL0001 --to PROV0003
+skm skills sync SKIL0002
+skm skills delete SKIL0002
+skm issues --view latest
+skm scan all
+skm scan provider PROV0001
+```
+
+In the desktop app, the sidebar runtime card also exposes an `Install CLI` button. It installs the bundled CLI binary to `~/.local/bin/skm`.
 
 ## API Overview
 

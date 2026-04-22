@@ -151,6 +151,19 @@ export interface SkillSyncResult {
   job?: ScanJob;
 }
 
+export interface DesktopCLIStatus {
+  available: boolean;
+  installed: boolean;
+  sourcePath?: string;
+  installedPath: string;
+}
+
+export interface DesktopCLIInstallResult {
+  sourcePath: string;
+  installedPath: string;
+  replaced: boolean;
+}
+
 export interface ConflictGroup {
   kind: string;
   key: string;
@@ -256,4 +269,6 @@ export const api = {
     request<ScanIssue[]>(`/api/issues${toQueryString(query)}`),
   getConflicts: () => request<ConflictGroup[]>("/api/conflicts"),
   getScanJobs: () => request<ScanJob[]>("/api/scan-jobs"),
+  getDesktopCLIStatus: () => request<DesktopCLIStatus>("/api/desktop/cli"),
+  installDesktopCLI: () => request<DesktopCLIInstallResult>("/api/desktop/cli/install", { method: "POST" }),
 };

@@ -4,6 +4,7 @@ import (
 	"backend-go/internal/models"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,11 +67,17 @@ func TestAttachSkillAttachCopiesFilesAndWritesRelationMetadata(t *testing.T) {
 	sourceProvider := createTestProvider(t, db, "Source Link", sourceRoot)
 	targetProvider := createTestProvider(t, db, "Target Link", targetRoot)
 	skill := createTestSkill(t, db, sourceProvider, filepath.Join(sourceRoot, "linked-skill"), "linked_skill")
+	if err := os.WriteFile(filepath.Join(skill.RootPath, "README.md"), []byte("source readme"), 0o644); err != nil {
+		t.Fatalf("write README.md: %v", err)
+	}
 	if err := os.WriteFile(filepath.Join(skill.RootPath, "notes.md"), []byte("source copy"), 0o644); err != nil {
 		t.Fatalf("write notes.md: %v", err)
 	}
 	if err := os.MkdirAll(filepath.Join(targetRoot, skill.DirectoryName), 0o755); err != nil {
 		t.Fatalf("mkdir target skill root: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(targetRoot, skill.DirectoryName, "README.md"), []byte("stale readme"), 0o644); err != nil {
+		t.Fatalf("write stale README.md: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(targetRoot, skill.DirectoryName, "notes.md"), []byte("stale"), 0o644); err != nil {
 		t.Fatalf("write stale notes.md: %v", err)
@@ -87,11 +94,11 @@ func TestAttachSkillAttachCopiesFilesAndWritesRelationMetadata(t *testing.T) {
 	if !info.IsDir() {
 		t.Fatal("expected target path to be a directory")
 	}
-	content, err := os.ReadFile(filepath.Join(result.TargetPath, "notes.md"))
+	content, err := os.ReadFile(filepath.Join(result.TargetPath, "README.md"))
 	if err != nil {
-		t.Fatalf("read copied notes.md: %v", err)
+		t.Fatalf("read copied README.md: %v", err)
 	}
-	if string(content) != "source copy" {
+	if string(content) != "source readme" {
 		t.Fatalf("expected copied file content to be overwritten, got %q", string(content))
 	}
 	fromContent, err := os.ReadFile(filepath.Join(result.TargetPath, skillRelationFromFile))
@@ -112,10 +119,10 @@ func TestAttachSkillAttachCopiesFilesAndWritesRelationMetadata(t *testing.T) {
 	if len(metadata.Directories) != 1 || metadata.Directories[0] != result.TargetPath {
 		t.Fatalf("unexpected .to directories: %#v", metadata.Directories)
 	}
-	if len(metadata.Include) != 1 || metadata.Include[0] != "**" {
+	if len(metadata.Include) != 2 || metadata.Include[0] != "README.md" || metadata.Include[1] != "SKILL.md" {
 		t.Fatalf("unexpected .to include rules: %#v", metadata.Include)
 	}
-	if len(metadata.Exclude) != 0 {
+	if len(metadata.Exclude) != 1 || metadata.Exclude[0] != "**/.DS_Store" {
 		t.Fatalf("unexpected .to exclude rules: %#v", metadata.Exclude)
 	}
 }
@@ -179,6 +186,250 @@ func TestAttachSkillAttachRespectsIncludeExcludeRules(t *testing.T) {
 	assertPathMissing(t, filepath.Join(result.TargetPath, "internal", "rule_test.go"))
 	assertPathMissing(t, filepath.Join(result.TargetPath, "bin", "tool"))
 	assertPathMissing(t, filepath.Join(result.TargetPath, skillRelationToFile))
+}
+
+func TestConfigureSkillToUsesExistingContainingProvider(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	baseDir := t.TempDir()
+	providerRoot := filepath.Join(baseDir, "provider")
+	skillRoot := filepath.Join(providerRoot, "nested", "demo-skill")
+	manualTarget := filepath.Join(baseDir, "manual-target")
+	if err := os.MkdirAll(providerRoot, 0o755); err != nil {
+		t.Fatalf("mkdir provider root: %v", err)
+	}
+	if err := os.MkdirAll(skillRoot, 0o755); err != nil {
+		t.Fatalf("mkdir skill root: %v", err)
+	}
+	if err := os.MkdirAll(manualTarget, 0o755); err != nil {
+		t.Fatalf("mkdir manual target: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte("# demo\n"), 0o644); err != nil {
+		t.Fatalf("write SKILL.md: %v", err)
+	}
+
+	existingProvider := createTestProvider(t, db, "Target To", providerRoot)
+
+	result, err := service.ConfigureSkillTo(ctx, SkillToInput{
+		RootPath:     skillRoot,
+		ProviderPath: filepath.Join(providerRoot, "nested"),
+		Directories:  []string{manualTarget},
+		Include:      []string{"README.md", "scripts/**"},
+		Exclude:      []string{"plugins/**"},
+	})
+	if err != nil {
+		t.Fatalf("ConfigureSkillTo returned error: %v", err)
+	}
+	if result.Provider == nil || result.Provider.Zid != existingProvider.Zid {
+		t.Fatalf("unexpected provider in result: %#v", result.Provider)
+	}
+	if result.ProviderCreated {
+		t.Fatal("expected existing provider to be reused")
+	}
+	toContent, err := os.ReadFile(filepath.Join(skillRoot, skillRelationToFile))
+	if err != nil {
+		t.Fatalf("read .to: %v", err)
+	}
+	var metadata skillToMetadata
+	if err := json.Unmarshal(toContent, &metadata); err != nil {
+		t.Fatalf("unmarshal .to: %v", err)
+	}
+	if len(metadata.Directories) != 1 {
+		t.Fatalf("unexpected directory count: %#v", metadata.Directories)
+	}
+	if metadata.Directories[0] != manualTarget {
+		t.Fatalf("unexpected .to directories: %#v", metadata.Directories)
+	}
+	if len(metadata.Include) != 2 || metadata.Include[0] != "README.md" || metadata.Include[1] != "scripts/**" {
+		t.Fatalf("unexpected .to include rules: %#v", metadata.Include)
+	}
+	if len(metadata.Exclude) != 1 || metadata.Exclude[0] != "plugins/**" {
+		t.Fatalf("unexpected .to exclude rules: %#v", metadata.Exclude)
+	}
+}
+
+func TestConfigureSkillToCreatesProviderAtProviderPath(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	baseDir := t.TempDir()
+	providerRoot := filepath.Join(baseDir, "workspace")
+	skillRoot := filepath.Join(providerRoot, "demo-skill")
+	manualTarget := filepath.Join(baseDir, "manual-target")
+	if err := os.MkdirAll(skillRoot, 0o755); err != nil {
+		t.Fatalf("mkdir skill root: %v", err)
+	}
+	if err := os.MkdirAll(manualTarget, 0o755); err != nil {
+		t.Fatalf("mkdir manual target: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte("# demo\n"), 0o644); err != nil {
+		t.Fatalf("write SKILL.md: %v", err)
+	}
+
+	result, err := service.ConfigureSkillTo(ctx, SkillToInput{
+		RootPath:     skillRoot,
+		ProviderPath: providerRoot,
+		Directories:  []string{manualTarget},
+	})
+	if err != nil {
+		t.Fatalf("ConfigureSkillTo returned error: %v", err)
+	}
+	if result.Provider == nil {
+		t.Fatal("expected provider to be created")
+	}
+	if !result.ProviderCreated {
+		t.Fatal("expected providerCreated to be true")
+	}
+	if result.Provider.RootPath != providerRoot {
+		t.Fatalf("unexpected provider root: got %s want %s", result.Provider.RootPath, providerRoot)
+	}
+
+	providers, err := service.ListProviders(ctx)
+	if err != nil {
+		t.Fatalf("ListProviders returned error: %v", err)
+	}
+	if len(providers) != 1 {
+		t.Fatalf("expected 1 provider, got %d", len(providers))
+	}
+}
+
+func TestConfigureSkillToRejectsProviderPathOutsideCurrentDirectoryTree(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	baseDir := t.TempDir()
+	skillRoot := filepath.Join(baseDir, "workspace", "demo-skill")
+	manualTarget := filepath.Join(baseDir, "manual-target")
+	foreignProviderRoot := filepath.Join(baseDir, "other-provider")
+	if err := os.MkdirAll(skillRoot, 0o755); err != nil {
+		t.Fatalf("mkdir skill root: %v", err)
+	}
+	if err := os.MkdirAll(manualTarget, 0o755); err != nil {
+		t.Fatalf("mkdir manual target: %v", err)
+	}
+	if err := os.MkdirAll(foreignProviderRoot, 0o755); err != nil {
+		t.Fatalf("mkdir foreign provider root: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte("# demo\n"), 0o644); err != nil {
+		t.Fatalf("write SKILL.md: %v", err)
+	}
+
+	_, err := service.ConfigureSkillTo(ctx, SkillToInput{
+		RootPath:     skillRoot,
+		ProviderPath: foreignProviderRoot,
+		Directories:  []string{manualTarget},
+	})
+	if err == nil || !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected invalid input error, got %v", err)
+	}
+}
+
+func TestConfigureSkillToAllowsEmptyDirectories(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	baseDir := t.TempDir()
+	providerRoot := filepath.Join(baseDir, "workspace")
+	skillRoot := filepath.Join(providerRoot, "demo-skill")
+	if err := os.MkdirAll(skillRoot, 0o755); err != nil {
+		t.Fatalf("mkdir skill root: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte("# demo\n"), 0o644); err != nil {
+		t.Fatalf("write SKILL.md: %v", err)
+	}
+
+	result, err := service.ConfigureSkillTo(ctx, SkillToInput{
+		RootPath:     skillRoot,
+		ProviderPath: providerRoot,
+		Exclude:      []string{"**/.DS_Store"},
+	})
+	if err != nil {
+		t.Fatalf("ConfigureSkillTo returned error: %v", err)
+	}
+	if result.Relation == nil {
+		t.Fatal("expected relation in result")
+	}
+	if len(result.Relation.Directories) != 0 {
+		t.Fatalf("expected empty directories, got %#v", result.Relation.Directories)
+	}
+
+	toContent, err := os.ReadFile(filepath.Join(skillRoot, skillRelationToFile))
+	if err != nil {
+		t.Fatalf("read .to: %v", err)
+	}
+	var metadata skillToMetadata
+	if err := json.Unmarshal(toContent, &metadata); err != nil {
+		t.Fatalf("unmarshal .to: %v", err)
+	}
+	if len(metadata.Directories) != 0 {
+		t.Fatalf("expected empty directories in .to, got %#v", metadata.Directories)
+	}
+	if len(metadata.Include) != 2 || metadata.Include[0] != "README.md" || metadata.Include[1] != "SKILL.md" {
+		t.Fatalf("unexpected .to include rules: %#v", metadata.Include)
+	}
+	if len(metadata.Exclude) != 1 || metadata.Exclude[0] != "**/.DS_Store" {
+		t.Fatalf("unexpected .to exclude rules: %#v", metadata.Exclude)
+	}
+}
+
+func TestConfigureSkillToAppliesDefaultIncludeAndExclude(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	baseDir := t.TempDir()
+	providerRoot := filepath.Join(baseDir, "workspace")
+	skillRoot := filepath.Join(providerRoot, "demo-skill")
+	if err := os.MkdirAll(skillRoot, 0o755); err != nil {
+		t.Fatalf("mkdir skill root: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte("# demo\n"), 0o644); err != nil {
+		t.Fatalf("write SKILL.md: %v", err)
+	}
+
+	result, err := service.ConfigureSkillTo(ctx, SkillToInput{
+		RootPath:     skillRoot,
+		ProviderPath: providerRoot,
+	})
+	if err != nil {
+		t.Fatalf("ConfigureSkillTo returned error: %v", err)
+	}
+	if result.Relation == nil {
+		t.Fatal("expected relation in result")
+	}
+	if len(result.Relation.Include) != 2 || result.Relation.Include[0] != "README.md" || result.Relation.Include[1] != "SKILL.md" {
+		t.Fatalf("unexpected default include rules: %#v", result.Relation.Include)
+	}
+	if len(result.Relation.Exclude) != 1 || result.Relation.Exclude[0] != "**/.DS_Store" {
+		t.Fatalf("unexpected default exclude rules: %#v", result.Relation.Exclude)
+	}
+}
+
+func TestConfigureSkillToRejectsAttachedCopy(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	skillRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte("# demo\n"), 0o644); err != nil {
+		t.Fatalf("write SKILL.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillRoot, skillRelationFromFile), []byte("/tmp/source\n"), 0o644); err != nil {
+		t.Fatalf("write .from: %v", err)
+	}
+
+	_, err := service.ConfigureSkillTo(ctx, SkillToInput{
+		RootPath:    skillRoot,
+		Directories: []string{filepath.Join(skillRoot, "target")},
+	})
+	if err == nil || !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected invalid input error, got %v", err)
+	}
 }
 
 func TestAttachSkillAttachAppendsTargetDirectories(t *testing.T) {

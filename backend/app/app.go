@@ -113,11 +113,13 @@ func newRouter(gdb *gorm.DB, logger *zap.Logger) http.Handler {
 
 	catalogService := service.NewCatalogService(gdb)
 	scanService := service.NewScanService(gdb)
+	desktopService := service.NewDesktopService()
 
 	dashboardHandler := handlers.NewDashboardHandler(catalogService)
 	providerHandler := handlers.NewProviderHandler(catalogService, scanService)
 	skillHandler := handlers.NewSkillHandler(catalogService, scanService)
 	scanHandler := handlers.NewScanHandler(catalogService, scanService)
+	desktopHandler := handlers.NewDesktopHandler(desktopService)
 
 	api := r.Group("/api")
 	{
@@ -133,6 +135,8 @@ func newRouter(gdb *gorm.DB, logger *zap.Logger) http.Handler {
 		api.GET("/scan-jobs/:zid", scanHandler.GetJob)
 		api.GET("/issues", scanHandler.ListIssues)
 		api.GET("/conflicts", scanHandler.ListConflicts)
+		api.GET("/desktop/cli", desktopHandler.CLIStatus)
+		api.POST("/desktop/cli/install", desktopHandler.InstallCLI)
 		api.GET("/skills", skillHandler.List)
 		api.GET("/skills/:zid", skillHandler.Get)
 		api.DELETE("/skills/:zid", skillHandler.Delete)
