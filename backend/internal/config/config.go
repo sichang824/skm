@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -65,8 +64,8 @@ func defaultDBDSN() string {
 		}
 	}
 
-	if appSupportPath, err := defaultAppSupportDBPath(); err == nil {
-		return appSupportPath
+	if userDBPath, err := defaultUserDBPath(); err == nil {
+		return userDBPath
 	}
 
 	return "./data/app.db"
@@ -112,8 +111,8 @@ func sqliteBaseDir(dsn string) string {
 		}
 	}
 
-	if appSupportPath, err := defaultAppSupportDBPath(); err == nil {
-		return filepath.Dir(appSupportPath)
+	if userDBPath, err := defaultUserDBPath(); err == nil {
+		return filepath.Dir(userDBPath)
 	}
 
 	return "."
@@ -143,18 +142,13 @@ func projectRootFromExecutable() string {
 	return ""
 }
 
-func defaultAppSupportDBPath() (string, error) {
-	configDir, err := os.UserConfigDir()
+func defaultUserDBPath() (string, error) {
+	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
 
-	appDirName := "SKM"
-	if runtime.GOOS == "darwin" {
-		return filepath.Join(configDir, appDirName, "app.db"), nil
-	}
-
-	return filepath.Join(configDir, appDirName, "app.db"), nil
+	return filepath.Join(homeDir, ".skm", "app.db"), nil
 }
 
 func getEnv(key, def string) string {

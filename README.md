@@ -130,7 +130,7 @@ make app-build
 
 The generated `.app` bundle is written to `build/bin/`.
 
-If the desktop app is launched outside the repository working directory, SQLite resolves to `~/Library/Application Support/SKM/app.db` by default. Override it with `DB_DSN` when needed.
+If the desktop app is launched outside the repository working directory, SQLite resolves to `~/.skm/app.db` by default. Override it with `DB_DSN` when needed.
 
 ## Common Commands
 

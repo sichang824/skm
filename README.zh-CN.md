@@ -130,7 +130,7 @@ make app-build
 
 生成的 `.app` 会输出到 `build/bin/`。
 
-如果桌面版在仓库目录之外启动，SQLite 默认会落到 `~/Library/Application Support/SKM/app.db`。需要时可以通过 `DB_DSN` 覆盖。
+如果桌面版在仓库目录之外启动，SQLite 默认会落到 `~/.skm/app.db`。需要时可以通过 `DB_DSN` 覆盖。
 
 ## Common Commands
 

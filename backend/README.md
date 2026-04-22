@@ -120,7 +120,7 @@ Example `.to` metadata:
 - `scan_jobs`
 - `scan_issues`
 
-The default SQLite database file is `./data/app.db`.
+The default SQLite database file is `./data/app.db` inside the repository, or `~/.skm/app.db` when SKM runs outside the repository working directory.
 
 ## Development
 
