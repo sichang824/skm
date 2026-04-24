@@ -1,0 +1,11 @@
+{
+  "directories": [
+    "/Users/ann/.agents/skills/skm"
+  ],
+  "include": [
+    "SKILL.md"
+  ],
+  "exclude": [
+    "**/.DS_Store"
+  ]
+}
