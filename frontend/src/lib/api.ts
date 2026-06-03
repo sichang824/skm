@@ -157,6 +157,7 @@ export interface SkillRemoveRelationResult {
   rootPath: string;
   removedMode: "from" | "to";
   clearedPaths?: string[];
+  scannedProviderZids?: string[];
   job?: ScanJob;
 }
 

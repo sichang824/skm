@@ -170,12 +170,13 @@ type SkillSyncResult struct {
 }
 
 type SkillRemoveRelationResult struct {
-	SkillZid     string          `json:"skillZid"`
-	Provider     models.Provider `json:"provider"`
-	RootPath     string          `json:"rootPath"`
-	RemovedMode  string          `json:"removedMode"`
-	ClearedPaths []string        `json:"clearedPaths,omitempty"`
-	Job          *models.ScanJob `json:"job,omitempty"`
+	SkillZid             string          `json:"skillZid"`
+	Provider             models.Provider `json:"provider"`
+	RootPath             string          `json:"rootPath"`
+	RemovedMode          string          `json:"removedMode"`
+	ClearedPaths         []string        `json:"clearedPaths,omitempty"`
+	ScannedProviderZids  []string        `json:"scannedProviderZids,omitempty"`
+	Job                  *models.ScanJob `json:"job,omitempty"`
 }
 
 func NewCatalogService(db *gorm.DB) *CatalogService {
@@ -612,10 +613,12 @@ func (s *CatalogService) RemoveSkillRelation(ctx context.Context, skillZid strin
 		}
 		result.ClearedPaths = append(result.ClearedPaths, rootPath)
 		if sourcePath != "" {
+			result.ClearedPaths = append(result.ClearedPaths, sourcePath)
 			if err := removeDirectoryFromSourceRelation(sourcePath, rootPath); err != nil {
 				return nil, err
 			}
 		}
+		result.ScannedProviderZids = s.collectProviderZidsForPaths(ctx, append(result.ClearedPaths, rootPath)...)
 		return result, nil
 	}
 
@@ -630,11 +633,37 @@ func (s *CatalogService) RemoveSkillRelation(ctx context.Context, skillZid strin
 		}
 		result.ClearedPaths = append(result.ClearedPaths, cleaned)
 	}
-	if err := removeSkillToMetadata(rootPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+	relation.To.Directories = nil
+	if err := writeSkillToMetadata(rootPath, relation.To); err != nil {
 		return nil, err
 	}
 	result.ClearedPaths = append(result.ClearedPaths, rootPath)
+	result.ScannedProviderZids = s.collectProviderZidsForPaths(ctx, append(result.ClearedPaths, rootPath)...)
 	return result, nil
+}
+
+func (s *CatalogService) collectProviderZidsForPaths(ctx context.Context, paths ...string) []string {
+	seen := make(map[string]struct{})
+	result := make([]string, 0, len(paths))
+	for _, pathValue := range paths {
+		cleanPath := filepath.Clean(strings.TrimSpace(pathValue))
+		if cleanPath == "" {
+			continue
+		}
+		var skill models.Skill
+		if err := s.db.WithContext(ctx).Preload("Provider").Where("root_path = ?", cleanPath).First(&skill).Error; err != nil {
+			continue
+		}
+		if skill.Provider.Zid == "" {
+			continue
+		}
+		if _, ok := seen[skill.Provider.Zid]; ok {
+			continue
+		}
+		seen[skill.Provider.Zid] = struct{}{}
+		result = append(result, skill.Provider.Zid)
+	}
+	return result
 }
 
 func (s *CatalogService) ConfigureSkillTo(ctx context.Context, input SkillToInput) (*SkillToResult, error) {

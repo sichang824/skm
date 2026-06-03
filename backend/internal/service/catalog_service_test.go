@@ -561,12 +561,6 @@ func TestDeleteSkillAttachedCopyCleansSourceMetadata(t *testing.T) {
 	if len(metadata.Directories) != 0 {
 		t.Fatalf("expected directories to be cleared, got %#v", metadata.Directories)
 	}
-	if len(metadata.Include) != 1 || metadata.Include[0] != "SKILL.md" {
-		t.Fatalf("expected include rule to be preserved, got %#v", metadata.Include)
-	}
-	if len(metadata.Exclude) != 1 || metadata.Exclude[0] != "bin/**" {
-		t.Fatalf("expected exclude rule to be preserved, got %#v", metadata.Exclude)
-	}
 }
 
 func TestDeleteSkillSourceWithCopiesRequiresForce(t *testing.T) {
@@ -762,6 +756,15 @@ func TestRemoveSkillRelationFromAttachedCopy(t *testing.T) {
 	if len(metadata.Directories) != 0 {
 		t.Fatalf("expected directories to be cleared, got %#v", metadata.Directories)
 	}
+	if len(metadata.Include) != 1 || metadata.Include[0] != "SKILL.md" {
+		t.Fatalf("expected include rule to be preserved, got %#v", metadata.Include)
+	}
+	if len(metadata.Exclude) != 1 || metadata.Exclude[0] != "bin/**" {
+		t.Fatalf("expected exclude rule to be preserved, got %#v", metadata.Exclude)
+	}
+	if len(result.ScannedProviderZids) < 2 {
+		t.Fatalf("expected providers for source and copy to be scanned, got %#v", result.ScannedProviderZids)
+	}
 }
 
 func TestRemoveSkillRelationFromSource(t *testing.T) {
@@ -799,8 +802,21 @@ func TestRemoveSkillRelationFromSource(t *testing.T) {
 	}
 	assertPathExists(t, sourceSkill.RootPath)
 	assertPathExists(t, copySkill.RootPath)
-	assertPathMissing(t, filepath.Join(sourceSkill.RootPath, skillRelationToFile))
 	assertPathMissing(t, filepath.Join(copySkill.RootPath, skillRelationFromFile))
+	toContent, err := os.ReadFile(filepath.Join(sourceSkill.RootPath, skillRelationToFile))
+	if err != nil {
+		t.Fatalf("read preserved source .to: %v", err)
+	}
+	var metadata skillToMetadata
+	if err := json.Unmarshal(toContent, &metadata); err != nil {
+		t.Fatalf("unmarshal preserved .to: %v", err)
+	}
+	if len(metadata.Directories) != 0 {
+		t.Fatalf("expected directories to be cleared, got %#v", metadata.Directories)
+	}
+	if len(metadata.Include) != 1 || metadata.Include[0] != "**" {
+		t.Fatalf("expected include rule to be preserved, got %#v", metadata.Include)
+	}
 }
 
 func TestRemoveSkillRelationRejectsPlainSkill(t *testing.T) {
@@ -817,6 +833,47 @@ func TestRemoveSkillRelationRejectsPlainSkill(t *testing.T) {
 
 	if _, err := service.RemoveSkillRelation(ctx, skill.Zid); err == nil {
 		t.Fatal("expected RemoveSkillRelation to reject skill without relation metadata")
+	}
+}
+
+func TestAttachSkillAfterRemoveRelationFromAttachedCopy(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	baseDir := t.TempDir()
+	sourceRoot := filepath.Join(baseDir, "source")
+	targetRoot := filepath.Join(baseDir, "target")
+	extraRoot := filepath.Join(baseDir, "extra")
+	for _, root := range []string{sourceRoot, targetRoot, extraRoot} {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatalf("mkdir root %s: %v", root, err)
+		}
+	}
+
+	sourceProvider := createTestProvider(t, db, "Attach Source", sourceRoot)
+	targetProvider := createTestProvider(t, db, "Attach Target", targetRoot)
+	extraProvider := createTestProvider(t, db, "Attach Extra", extraRoot)
+	sourceSkill := createTestSkill(t, db, sourceProvider, filepath.Join(sourceRoot, "shared-skill"), "shared_skill")
+	copySkill := createTestSkill(t, db, targetProvider, filepath.Join(targetRoot, "shared-skill"), "shared_skill_copy")
+
+	if err := writeSkillToMetadata(sourceSkill.RootPath, skillToMetadata{Directories: []string{copySkill.RootPath}, Include: []string{"SKILL.md"}}); err != nil {
+		t.Fatalf("write source .to: %v", err)
+	}
+	if err := writeSkillFromMetadata(copySkill.RootPath, sourceSkill.RootPath); err != nil {
+		t.Fatalf("write copy .from: %v", err)
+	}
+
+	if _, err := service.RemoveSkillRelation(ctx, copySkill.Zid); err != nil {
+		t.Fatalf("RemoveSkillRelation returned error: %v", err)
+	}
+
+	_, err := service.AttachSkill(ctx, copySkill.Zid, SkillAttachInput{
+		TargetProviderZid: extraProvider.Zid,
+		Mode:              "attach",
+	})
+	if err != nil {
+		t.Fatalf("AttachSkill after remove returned error: %v", err)
 	}
 }
 

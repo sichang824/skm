@@ -153,11 +153,18 @@ func (h *SkillHandler) RemoveRelation(c *gin.Context) {
 		return
 	}
 
-	job, scanErr := h.scanner.ScanProviderByZid(c.Request.Context(), result.Provider.Zid)
-	if scanErr != nil {
-		writeServiceError(c, scanErr)
-		return
+	providerZids := result.ScannedProviderZids
+	if len(providerZids) == 0 {
+		providerZids = []string{result.Provider.Zid}
 	}
-	result.Job = job
+	for _, providerZid := range providerZids {
+		job, scanErr := h.scanner.ScanProviderByZid(c.Request.Context(), providerZid)
+		if scanErr != nil {
+			continue
+		}
+		if providerZid == result.Provider.Zid {
+			result.Job = job
+		}
+	}
 	response.OK(c, result)
 }

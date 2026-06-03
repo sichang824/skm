@@ -23,7 +23,7 @@ function App() {
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
 
-      <Toaster richColors />
+      <Toaster richColors closeButton style={{ zIndex: 99999 }} />
     </AppLayout>
   );
 }
