@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -13,6 +15,7 @@ type DesktopService struct {
 	executablePath func() (string, error)
 	homeDir        func() (string, error)
 	workingDir     func() (string, error)
+	revealPath     func(path string) error
 }
 
 type CLIInstallStatus struct {
@@ -28,11 +31,16 @@ type CLIInstallResult struct {
 	Replaced      bool   `json:"replaced"`
 }
 
+type RevealInFinderResult struct {
+	Path string `json:"path"`
+}
+
 func NewDesktopService() *DesktopService {
 	return &DesktopService{
 		executablePath: os.Executable,
 		homeDir:        os.UserHomeDir,
 		workingDir:     os.Getwd,
+		revealPath:     revealPathInFileManager,
 	}
 }
 
@@ -49,6 +57,24 @@ func (s *DesktopService) CLIStatus() (*CLIInstallStatus, error) {
 		SourcePath:    sourcePath,
 		InstalledPath: installedPath,
 	}, nil
+}
+
+func (s *DesktopService) RevealInFinder(path string) (*RevealInFinderResult, error) {
+	cleanPath := strings.TrimSpace(path)
+	if cleanPath == "" {
+		return nil, fmt.Errorf("%w: path is required", ErrInvalidInput)
+	}
+	cleanPath = filepath.Clean(cleanPath)
+	if _, err := os.Stat(cleanPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("%w: path does not exist", ErrInvalidInput)
+		}
+		return nil, err
+	}
+	if err := s.revealPath(cleanPath); err != nil {
+		return nil, err
+	}
+	return &RevealInFinderResult{Path: cleanPath}, nil
 }
 
 func (s *DesktopService) InstallCLI() (*CLIInstallResult, error) {
@@ -155,6 +181,17 @@ func uniqueStrings(values []string) []string {
 		result = append(result, trimmed)
 	}
 	return result
+}
+
+func revealPathInFileManager(path string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", "-R", path).Run()
+	case "windows":
+		return exec.Command("explorer", "/select,", filepath.Clean(path)).Run()
+	default:
+		return exec.Command("xdg-open", filepath.Dir(path)).Run()
+	}
 }
 
 func copyExecutableFile(sourcePath, targetPath string) error {

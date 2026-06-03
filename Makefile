@@ -7,6 +7,8 @@ TOOLS_BIN_DIR := .tools/bin
 WAILS := $(TOOLS_BIN_DIR)/wails
 WAILS_VERSION := v2.12.0
 CLI_BIN := build/bin/skm
+APP_BUNDLE := build/bin/SKM.app
+APP_INSTALL_DIR ?= /Applications
 
 BACKEND_PORT ?= 8080
 FRONTEND_PORT ?= 5173
@@ -17,7 +19,7 @@ FRONTEND_URL := http://localhost:$(FRONTEND_PORT)
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check-tools install reset seed dev dev/seed dev-backend dev-frontend test build clean app-dev app-build wails-cli cli-build cli-install
+.PHONY: help check-tools install reset seed dev dev/seed dev-backend dev-frontend test build clean app-dev app-build app-build-install wails-cli cli-build cli-install
 
 help: ## Show available workspace commands
 	@echo "SKM workspace commands"
@@ -26,6 +28,7 @@ help: ## Show available workspace commands
 	@echo ""
 	@echo "Variable overrides:"
 	@echo "  BACKEND_PORT=$(BACKEND_PORT) FRONTEND_PORT=$(FRONTEND_PORT) FRONTEND_HOST=$(FRONTEND_HOST)"
+	@echo "  APP_INSTALL_DIR=$(APP_INSTALL_DIR)"
 
 check-tools: ## Check required local tools
 	@command -v go >/dev/null 2>&1 || { echo "Error: go is required"; exit 1; }
@@ -125,6 +128,13 @@ app-build: check-tools $(WAILS) ## Build the macOS desktop app bundle with Wails
 	else \
 		echo "Warning: app bundle not found, skipped CLI bundling"; \
 	fi
+
+app-build-install: app-build ## Build and install the macOS desktop app to /Applications
+	@test -d "$(APP_BUNDLE)" || { echo "Error: app bundle not found at $(APP_BUNDLE)"; exit 1; }
+	@echo "Installing $(APP_BUNDLE) to $(APP_INSTALL_DIR)/SKM.app"
+	@rm -rf "$(APP_INSTALL_DIR)/SKM.app"
+	@ditto "$(APP_BUNDLE)" "$(APP_INSTALL_DIR)/SKM.app"
+	@echo "✅ Installed SKM to $(APP_INSTALL_DIR)/SKM.app"
 
 clean: ## Clean backend and frontend build artifacts
 	@$(MAKE) -C $(BACKEND_DIR) clean

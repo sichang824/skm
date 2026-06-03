@@ -716,6 +716,110 @@ func TestSyncSkillRejectsNonAttachedSkill(t *testing.T) {
 	}
 }
 
+func TestRemoveSkillRelationFromAttachedCopy(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	baseDir := t.TempDir()
+	sourceRoot := filepath.Join(baseDir, "source")
+	targetRoot := filepath.Join(baseDir, "target")
+	for _, root := range []string{sourceRoot, targetRoot} {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatalf("mkdir root %s: %v", root, err)
+		}
+	}
+
+	sourceProvider := createTestProvider(t, db, "Remove Source", sourceRoot)
+	targetProvider := createTestProvider(t, db, "Remove Target", targetRoot)
+	sourceSkill := createTestSkill(t, db, sourceProvider, filepath.Join(sourceRoot, "shared-skill"), "shared_skill")
+	copySkill := createTestSkill(t, db, targetProvider, filepath.Join(targetRoot, "shared-skill"), "shared_skill_copy")
+
+	if err := writeSkillToMetadata(sourceSkill.RootPath, skillToMetadata{Directories: []string{copySkill.RootPath}, Include: []string{"SKILL.md"}, Exclude: []string{"bin/**"}}); err != nil {
+		t.Fatalf("write source .to: %v", err)
+	}
+	if err := writeSkillFromMetadata(copySkill.RootPath, sourceSkill.RootPath); err != nil {
+		t.Fatalf("write copy .from: %v", err)
+	}
+
+	result, err := service.RemoveSkillRelation(ctx, copySkill.Zid)
+	if err != nil {
+		t.Fatalf("RemoveSkillRelation returned error: %v", err)
+	}
+	if result.RemovedMode != "from" {
+		t.Fatalf("unexpected removed mode: got %s", result.RemovedMode)
+	}
+	assertPathExists(t, copySkill.RootPath)
+	assertPathMissing(t, filepath.Join(copySkill.RootPath, skillRelationFromFile))
+	toContent, err := os.ReadFile(filepath.Join(sourceSkill.RootPath, skillRelationToFile))
+	if err != nil {
+		t.Fatalf("read preserved source .to: %v", err)
+	}
+	var metadata skillToMetadata
+	if err := json.Unmarshal(toContent, &metadata); err != nil {
+		t.Fatalf("unmarshal preserved .to: %v", err)
+	}
+	if len(metadata.Directories) != 0 {
+		t.Fatalf("expected directories to be cleared, got %#v", metadata.Directories)
+	}
+}
+
+func TestRemoveSkillRelationFromSource(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	baseDir := t.TempDir()
+	sourceRoot := filepath.Join(baseDir, "source")
+	targetRoot := filepath.Join(baseDir, "target")
+	for _, root := range []string{sourceRoot, targetRoot} {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatalf("mkdir root %s: %v", root, err)
+		}
+	}
+
+	sourceProvider := createTestProvider(t, db, "Remove Source To", sourceRoot)
+	targetProvider := createTestProvider(t, db, "Remove Target From", targetRoot)
+	sourceSkill := createTestSkill(t, db, sourceProvider, filepath.Join(sourceRoot, "origin-skill"), "origin_skill")
+	copySkill := createTestSkill(t, db, targetProvider, filepath.Join(targetRoot, "origin-skill"), "origin_skill_copy")
+
+	if err := writeSkillToMetadata(sourceSkill.RootPath, skillToMetadata{Directories: []string{copySkill.RootPath}, Include: []string{"**"}}); err != nil {
+		t.Fatalf("write source .to: %v", err)
+	}
+	if err := writeSkillFromMetadata(copySkill.RootPath, sourceSkill.RootPath); err != nil {
+		t.Fatalf("write copy .from: %v", err)
+	}
+
+	result, err := service.RemoveSkillRelation(ctx, sourceSkill.Zid)
+	if err != nil {
+		t.Fatalf("RemoveSkillRelation returned error: %v", err)
+	}
+	if result.RemovedMode != "to" {
+		t.Fatalf("unexpected removed mode: got %s", result.RemovedMode)
+	}
+	assertPathExists(t, sourceSkill.RootPath)
+	assertPathExists(t, copySkill.RootPath)
+	assertPathMissing(t, filepath.Join(sourceSkill.RootPath, skillRelationToFile))
+	assertPathMissing(t, filepath.Join(copySkill.RootPath, skillRelationFromFile))
+}
+
+func TestRemoveSkillRelationRejectsPlainSkill(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	providerRoot := filepath.Join(t.TempDir(), "provider")
+	if err := os.MkdirAll(providerRoot, 0o755); err != nil {
+		t.Fatalf("mkdir provider root: %v", err)
+	}
+	provider := createTestProvider(t, db, "Remove Reject", providerRoot)
+	skill := createTestSkill(t, db, provider, filepath.Join(providerRoot, "plain-skill"), "plain_skill")
+
+	if _, err := service.RemoveSkillRelation(ctx, skill.Zid); err == nil {
+		t.Fatal("expected RemoveSkillRelation to reject skill without relation metadata")
+	}
+}
+
 func TestListSkillsGroupedByRelation(t *testing.T) {
 	db := openCatalogTestDB(t)
 	service := NewCatalogService(db)

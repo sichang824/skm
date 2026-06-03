@@ -32,3 +32,19 @@ func (h *DesktopHandler) InstallCLI(c *gin.Context) {
 	}
 	response.OK(c, result)
 }
+
+func (h *DesktopHandler) RevealInFinder(c *gin.Context) {
+	var req struct {
+		Path string `json:"path"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeServiceError(c, service.ErrInvalidInput)
+		return
+	}
+	result, err := h.desktop.RevealInFinder(req.Path)
+	if err != nil {
+		writeServiceError(c, err)
+		return
+	}
+	response.OK(c, result)
+}

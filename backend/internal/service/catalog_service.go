@@ -169,6 +169,15 @@ type SkillSyncResult struct {
 	Job        *models.ScanJob `json:"job,omitempty"`
 }
 
+type SkillRemoveRelationResult struct {
+	SkillZid     string          `json:"skillZid"`
+	Provider     models.Provider `json:"provider"`
+	RootPath     string          `json:"rootPath"`
+	RemovedMode  string          `json:"removedMode"`
+	ClearedPaths []string        `json:"clearedPaths,omitempty"`
+	Job          *models.ScanJob `json:"job,omitempty"`
+}
+
 func NewCatalogService(db *gorm.DB) *CatalogService {
 	return &CatalogService{db: db}
 }
@@ -566,6 +575,66 @@ func (s *CatalogService) SyncSkill(ctx context.Context, skillZid string) (*Skill
 		TargetPath: targetPath,
 		Synced:     true,
 	}, nil
+}
+
+func (s *CatalogService) RemoveSkillRelation(ctx context.Context, skillZid string) (*SkillRemoveRelationResult, error) {
+	skill, err := s.GetSkill(ctx, skillZid)
+	if err != nil {
+		return nil, err
+	}
+
+	rootPath := filepath.Clean(skill.RootPath)
+	providerRoot := filepath.Clean(skill.Provider.RootPath)
+	if !pathWithinRoot(providerRoot, rootPath) {
+		return nil, fmt.Errorf("%w: skill rootPath is outside provider root", ErrInvalidInput)
+	}
+
+	relation, err := readSkillRelationState(rootPath)
+	if err != nil {
+		return nil, err
+	}
+	if !relation.HasFrom && !relation.HasTo {
+		return nil, fmt.Errorf("%w: skill has no relation metadata", ErrInvalidInput)
+	}
+
+	result := &SkillRemoveRelationResult{
+		SkillZid:     skill.Zid,
+		Provider:     skill.Provider,
+		RootPath:     rootPath,
+		ClearedPaths: []string{},
+	}
+
+	if relation.HasFrom {
+		result.RemovedMode = "from"
+		sourcePath := filepath.Clean(strings.TrimSpace(relation.FromPath))
+		if err := removeSkillFromMetadata(rootPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		result.ClearedPaths = append(result.ClearedPaths, rootPath)
+		if sourcePath != "" {
+			if err := removeDirectoryFromSourceRelation(sourcePath, rootPath); err != nil {
+				return nil, err
+			}
+		}
+		return result, nil
+	}
+
+	result.RemovedMode = "to"
+	for _, directory := range relation.To.Directories {
+		cleaned := filepath.Clean(strings.TrimSpace(directory))
+		if cleaned == "" {
+			continue
+		}
+		if err := removeSkillFromMetadata(cleaned); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		result.ClearedPaths = append(result.ClearedPaths, cleaned)
+	}
+	if err := removeSkillToMetadata(rootPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	result.ClearedPaths = append(result.ClearedPaths, rootPath)
+	return result, nil
 }
 
 func (s *CatalogService) ConfigureSkillTo(ctx context.Context, input SkillToInput) (*SkillToResult, error) {
@@ -1280,6 +1349,14 @@ func writeSkillToMetadata(rootPath string, metadata skillToMetadata) error {
 	}
 	data = append(data, '\n')
 	return os.WriteFile(filepath.Join(rootPath, skillRelationToFile), data, 0o644)
+}
+
+func removeSkillFromMetadata(rootPath string) error {
+	return os.Remove(filepath.Join(rootPath, skillRelationFromFile))
+}
+
+func removeSkillToMetadata(rootPath string) error {
+	return os.Remove(filepath.Join(rootPath, skillRelationToFile))
 }
 
 func updateRelationsAfterMove(sourcePath, targetPath string) error {

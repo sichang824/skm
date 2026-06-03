@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Copy, FileText, FolderOpen, RefreshCw, Trash2, X } from "lucide-react";
+import { Copy, ExternalLink, FileText, FolderOpen, Link2Off, RefreshCw, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
 import { api, type FileNode, type Skill } from "../../lib/api";
@@ -23,7 +23,9 @@ export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted, onSynced
   const [loading, setLoading] = useState(false);
   const [previewError, setPreviewError] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [removeRelationDialogOpen, setRemoveRelationDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [removingRelation, setRemovingRelation] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
   async function loadSkillDetail(skillZid: string, active: () => boolean) {
@@ -134,6 +136,17 @@ export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted, onSynced
     }
   }
 
+  async function handleRevealInFinder() {
+    if (!skill?.rootPath) {
+      return;
+    }
+    try {
+      await api.revealInFinder(skill.rootPath);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "无法在 Finder 中显示");
+    }
+  }
+
   async function handleDeleteSkill() {
     if (!zid || !skill) {
       return;
@@ -176,6 +189,27 @@ export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted, onSynced
     }
   }
 
+  async function handleRemoveRelation() {
+    if (!zid || !skill?.relation) {
+      return;
+    }
+    setRemovingRelation(true);
+    try {
+      const result = await api.removeSkillRelation(zid);
+      const successMessage = result.removedMode === "from"
+        ? `${skill.name} 的关联副本标记已移除`
+        : `${skill.name} 的关联源标记已移除，副本关联已清理`;
+      toast.success(successMessage);
+      setRemoveRelationDialogOpen(false);
+      await loadSkillDetail(zid, () => true);
+      onSynced?.();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "移除关联失败");
+    } finally {
+      setRemovingRelation(false);
+    }
+  }
+
   if (!open || !zid) {
     return null;
   }
@@ -192,6 +226,7 @@ export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted, onSynced
       : previewPath;
   const attachedCopyCount = skill?.relation?.mode === "to" ? (skill.relation.directories?.length ?? 0) : 0;
   const isAttachedCopy = skill?.relation?.mode === "from";
+  const hasRelation = skill?.relation?.mode === "from" || skill?.relation?.mode === "to";
   const issueBadge = skill?.status === "invalid" ? "异常" : skill?.isConflict ? "存在冲突" : "Frontmatter Parsed";
   const issueBadgeClass = skill?.status === "invalid"
     ? "bg-red-50 text-red-700"
@@ -217,6 +252,16 @@ export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted, onSynced
             <FolderOpen className="h-3.5 w-3.5" />
             复制目录
           </button>
+          <button type="button" onClick={() => void handleRevealInFinder()} className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 shadow-sm transition-colors hover:text-blue-600" disabled={!skill}>
+            <ExternalLink className="h-3.5 w-3.5" />
+            Reveal in Finder
+          </button>
+          {hasRelation ? (
+            <button type="button" onClick={() => setRemoveRelationDialogOpen(true)} className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800 shadow-sm transition-colors hover:bg-amber-100" disabled={!skill || removingRelation}>
+              <Link2Off className="h-3.5 w-3.5" />
+              移除关联
+            </button>
+          ) : null}
           <button type="button" onClick={() => setDeleteDialogOpen(true)} className="inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 shadow-sm transition-colors hover:bg-red-100" disabled={!skill || deleting}>
             <Trash2 className="h-3.5 w-3.5" />
             删除 Skill
@@ -426,6 +471,41 @@ export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted, onSynced
               className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {deleting ? "删除中…" : attachedCopyCount > 0 ? "强制删除源 Skill" : "确认删除目录"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={removeRelationDialogOpen} onOpenChange={(nextOpen) => { if (!removingRelation) { setRemoveRelationDialogOpen(nextOpen); } }}>
+        <DialogContent className="max-w-md rounded-2xl border-amber-100 bg-white p-0 shadow-[0_24px_90px_rgba(15,23,42,0.16)]" showCloseButton={false}>
+          <div className="px-6 py-5">
+            <DialogHeader className="gap-2 text-left">
+              <DialogTitle className="text-xl font-semibold text-slate-900">确认移除关联</DialogTitle>
+              <DialogDescription className="text-sm leading-6 text-amber-700">
+                {isAttachedCopy
+                  ? "将删除当前目录的 .from，并同步清理来源 Skill 的 .to 目录记录。Skill 文件本身不会被删除。"
+                  : attachedCopyCount > 0
+                    ? `将删除当前目录的 .to，并清理 ${attachedCopyCount} 个关联副本目录中的 .from。Skill 文件本身不会被删除。`
+                    : "将删除当前目录的 .to 关联元数据。Skill 文件本身不会被删除。"}
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+          <DialogFooter className="border-t border-slate-200 px-6 py-4 sm:justify-between">
+            <button
+              type="button"
+              onClick={() => setRemoveRelationDialogOpen(false)}
+              disabled={removingRelation}
+              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleRemoveRelation()}
+              disabled={removingRelation}
+              className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {removingRelation ? "移除中…" : "确认移除关联"}
             </button>
           </DialogFooter>
         </DialogContent>

@@ -151,6 +151,15 @@ export interface SkillSyncResult {
   job?: ScanJob;
 }
 
+export interface SkillRemoveRelationResult {
+  skillZid: string;
+  provider: Provider;
+  rootPath: string;
+  removedMode: "from" | "to";
+  clearedPaths?: string[];
+  job?: ScanJob;
+}
+
 export interface DesktopCLIStatus {
   available: boolean;
   installed: boolean;
@@ -162,6 +171,10 @@ export interface DesktopCLIInstallResult {
   sourcePath: string;
   installedPath: string;
   replaced: boolean;
+}
+
+export interface RevealInFinderResult {
+  path: string;
 }
 
 export interface ConflictGroup {
@@ -257,6 +270,8 @@ export const api = {
     body: JSON.stringify(input),
   }),
   syncSkill: (zid: string) => request<SkillSyncResult>(`/api/skills/${zid}/sync`, { method: "POST" }),
+  removeSkillRelation: (zid: string) =>
+    request<SkillRemoveRelationResult>(`/api/skills/${zid}/relation/remove`, { method: "POST" }),
   attachSkill: (zid: string, input: SkillAttachInput) =>
     request<SkillAttachResult>(`/api/skills/${zid}/attach`, {
       method: "POST",
@@ -271,4 +286,9 @@ export const api = {
   getScanJobs: () => request<ScanJob[]>("/api/scan-jobs"),
   getDesktopCLIStatus: () => request<DesktopCLIStatus>("/api/desktop/cli"),
   installDesktopCLI: () => request<DesktopCLIInstallResult>("/api/desktop/cli/install", { method: "POST" }),
+  revealInFinder: (path: string) =>
+    request<RevealInFinderResult>("/api/desktop/reveal", {
+      method: "POST",
+      body: JSON.stringify({ path }),
+    }),
 };

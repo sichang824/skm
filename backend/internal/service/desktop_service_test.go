@@ -62,3 +62,47 @@ func TestFindCLISourceDoesNotUseDesktopAppBinary(t *testing.T) {
 		t.Fatalf("expected no CLI source, got %s", sourcePath)
 	}
 }
+
+func TestRevealInFinderRequiresExistingPath(t *testing.T) {
+	service := &DesktopService{
+		revealPath: func(path string) error { return nil },
+	}
+
+	_, err := service.RevealInFinder("/does/not/exist")
+	if err == nil {
+		t.Fatal("expected error for missing path")
+	}
+}
+
+func TestRevealInFinderRejectsEmptyPath(t *testing.T) {
+	service := &DesktopService{
+		revealPath: func(path string) error { return nil },
+	}
+
+	_, err := service.RevealInFinder("   ")
+	if err == nil {
+		t.Fatal("expected error for empty path")
+	}
+}
+
+func TestRevealInFinderCallsRevealFn(t *testing.T) {
+	dir := t.TempDir()
+	var calledPath string
+	service := &DesktopService{
+		revealPath: func(path string) error {
+			calledPath = path
+			return nil
+		},
+	}
+
+	result, err := service.RevealInFinder(dir)
+	if err != nil {
+		t.Fatalf("RevealInFinder returned error: %v", err)
+	}
+	if calledPath != dir {
+		t.Fatalf("unexpected reveal path: got %s want %s", calledPath, dir)
+	}
+	if result.Path != dir {
+		t.Fatalf("unexpected result path: got %s want %s", result.Path, dir)
+	}
+}
