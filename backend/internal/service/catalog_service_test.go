@@ -710,6 +710,127 @@ func TestSyncSkillRejectsNonAttachedSkill(t *testing.T) {
 	}
 }
 
+func TestSyncSkillCopiesRefreshesAllAttachedCopies(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	baseDir := t.TempDir()
+	sourceRoot := filepath.Join(baseDir, "source")
+	targetRootA := filepath.Join(baseDir, "target-a")
+	targetRootB := filepath.Join(baseDir, "target-b")
+	for _, root := range []string{sourceRoot, targetRootA, targetRootB} {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatalf("mkdir root %s: %v", root, err)
+		}
+	}
+
+	sourceProvider := createTestProvider(t, db, "Source Copies", sourceRoot)
+	targetProviderA := createTestProvider(t, db, "Target Copies A", targetRootA)
+	targetProviderB := createTestProvider(t, db, "Target Copies B", targetRootB)
+	sourceSkill := createTestSkill(t, db, sourceProvider, filepath.Join(sourceRoot, "sync-skill"), "sync_skill")
+	copySkillA := createTestSkill(t, db, targetProviderA, filepath.Join(targetRootA, "sync-skill"), "sync_skill")
+	copySkillB := createTestSkill(t, db, targetProviderB, filepath.Join(targetRootB, "sync-skill"), "sync_skill")
+
+	if err := os.WriteFile(filepath.Join(sourceSkill.RootPath, "guide.md"), []byte("fresh content"), 0o644); err != nil {
+		t.Fatalf("write source guide.md: %v", err)
+	}
+	for _, copyPath := range []string{copySkillA.RootPath, copySkillB.RootPath} {
+		if err := os.WriteFile(filepath.Join(copyPath, "guide.md"), []byte("stale content"), 0o644); err != nil {
+			t.Fatalf("write copy guide.md: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(copyPath, "obsolete.md"), []byte("obsolete"), 0o644); err != nil {
+			t.Fatalf("write copy obsolete.md: %v", err)
+		}
+	}
+	if err := writeSkillToMetadata(sourceSkill.RootPath, skillToMetadata{
+		Directories: []string{copySkillA.RootPath, copySkillB.RootPath},
+		Include:     []string{"SKILL.md", "guide.md"},
+		Exclude:     []string{"obsolete.md"},
+	}); err != nil {
+		t.Fatalf("write source .to: %v", err)
+	}
+	for _, copySkill := range []*models.Skill{copySkillA, copySkillB} {
+		if err := writeSkillFromMetadata(copySkill.RootPath, sourceSkill.RootPath); err != nil {
+			t.Fatalf("write copy .from: %v", err)
+		}
+	}
+
+	result, err := service.SyncSkillCopies(ctx, sourceSkill.Zid)
+	if err != nil {
+		t.Fatalf("SyncSkillCopies returned error: %v", err)
+	}
+	if !result.Synced {
+		t.Fatal("expected synced result to be true")
+	}
+	if result.SourcePath != sourceSkill.RootPath {
+		t.Fatalf("unexpected source path: %#v", result)
+	}
+	if len(result.Copies) != 2 {
+		t.Fatalf("expected 2 copy sync results, got %#v", result.Copies)
+	}
+
+	for _, copySkill := range []*models.Skill{copySkillA, copySkillB} {
+		guideContent, err := os.ReadFile(filepath.Join(copySkill.RootPath, "guide.md"))
+		if err != nil {
+			t.Fatalf("read synced guide.md: %v", err)
+		}
+		if string(guideContent) != "fresh content" {
+			t.Fatalf("expected synced guide.md content, got %q", string(guideContent))
+		}
+		if _, err := os.Stat(filepath.Join(copySkill.RootPath, "obsolete.md")); !os.IsNotExist(err) {
+			t.Fatalf("expected obsolete.md to be removed, stat err=%v", err)
+		}
+	}
+}
+
+func TestSyncSkillCopiesRejectsAttachedCopy(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	baseDir := t.TempDir()
+	sourceRoot := filepath.Join(baseDir, "source")
+	targetRoot := filepath.Join(baseDir, "target")
+	for _, root := range []string{sourceRoot, targetRoot} {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatalf("mkdir root %s: %v", root, err)
+		}
+	}
+
+	sourceProvider := createTestProvider(t, db, "Source Reject", sourceRoot)
+	targetProvider := createTestProvider(t, db, "Target Reject", targetRoot)
+	sourceSkill := createTestSkill(t, db, sourceProvider, filepath.Join(sourceRoot, "sync-skill"), "sync_skill")
+	copySkill := createTestSkill(t, db, targetProvider, filepath.Join(targetRoot, "sync-skill"), "sync_skill")
+	if err := writeSkillFromMetadata(copySkill.RootPath, sourceSkill.RootPath); err != nil {
+		t.Fatalf("write copy .from: %v", err)
+	}
+
+	if _, err := service.SyncSkillCopies(ctx, copySkill.Zid); err == nil {
+		t.Fatal("expected SyncSkillCopies to reject attached copy")
+	}
+}
+
+func TestSyncSkillCopiesRejectsSourceWithoutDirectories(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	providerRoot := filepath.Join(t.TempDir(), "provider")
+	if err := os.MkdirAll(providerRoot, 0o755); err != nil {
+		t.Fatalf("mkdir provider root: %v", err)
+	}
+	provider := createTestProvider(t, db, "No Copies", providerRoot)
+	skill := createTestSkill(t, db, provider, filepath.Join(providerRoot, "plain-skill"), "plain_skill")
+	if err := writeSkillToMetadata(skill.RootPath, skillToMetadata{Include: []string{"SKILL.md"}}); err != nil {
+		t.Fatalf("write source .to: %v", err)
+	}
+
+	if _, err := service.SyncSkillCopies(ctx, skill.Zid); err == nil {
+		t.Fatal("expected SyncSkillCopies to reject source without attached directories")
+	}
+}
+
 func TestRemoveSkillRelationFromAttachedCopy(t *testing.T) {
 	db := openCatalogTestDB(t)
 	service := NewCatalogService(db)

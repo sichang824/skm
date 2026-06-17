@@ -13,7 +13,7 @@ description: "Use when working with the local skm CLI to manage skill providers,
 - 需要新增、更新、删除 provider
 - 需要扫描一个或全部 provider
 - 需要查询 skill、查看 skill 详情、维护 `.to` 元数据
-- 需要把 skill 附着到另一个 provider，或执行 link、move、sync、delete
+- 需要把 skill 附着到另一个 provider，或执行 link、move、sync、sync-copies、delete
 - 需要先用 CLI 核对数据，再去桌面端或前端界面继续操作
 
 ## 基本约束
@@ -146,12 +146,60 @@ skm skills --json
 skm skills get SKIL0001
 ```
 
-在当前 skill 目录里创建或更新 `.to` 元数据：
+### 维护 `.to` 元数据
+
+`.to` 是 skill 目录里的 JSON 文件，定义 **attach / sync 时要复制到消费端（如 `~/.cursor/skills/...`）的文件子集**。
+
+**原则：包含 skill 被调用时需要的全部内容；排除源码、构建产物和运行时垃圾。**
+
+| 通常应 `include` | 通常应 `exclude` |
+|------------------|------------------|
+| `SKILL.md` | 语言源码（如 `internal/**`、`cmd/**`、`*.go`、`src/**`） |
+| `scripts/**`、可执行包装脚本 | 测试（`**/*_test.*`、`**/*.test.*`、`testdata/**`） |
+| `references/**`（OpenAPI、API 说明、配置模板） | 构建输出（`bin/**`、`dist/**`、`node_modules/**`） |
+| `assets/**`（skill 运行时引用的静态资源） | 用户数据、缓存、日志、cookie（`media/**`、`output/**`、`*.log`） |
+| `Makefile`（若 skill 文档里会 `make ...`） | 密钥、本地配置（`.env`、`*_secret*`） |
+| 预编译 CLI 二进制（若 skill 直接调用且仓库内分发） | `.git/**`、`.to`、`.from`、编辑器目录 |
+
+`directories` 由 `skm skills link` / sync 流程写入，表示已附着副本的目标路径。**手写 `.to` 时只维护 `include` / `exclude`，不要填 `directories`。**
+
+文件格式示例（仅规则，无目标路径）：
+
+```json
+{
+  "include": [
+    "SKILL.md",
+    "Makefile",
+    "scripts/**",
+    "references/**"
+  ],
+  "exclude": [
+    "**/.DS_Store",
+    "media/**",
+    "output/**"
+  ]
+}
+```
+
+用 CLI 创建或更新（在 skill 目录内执行；`--include` / `--exclude` 可重复）：
 
 ```bash
-skm skills to --provider-path ~/Workspace/skills
-skm skills to --directory scripts --include README.md --include scripts/** --exclude assets/**
+cd path/to/skill
+skm skills to \
+  --include SKILL.md \
+  --include Makefile \
+  --include 'scripts/**' \
+  --include 'references/**' \
+  --exclude 'media/**' \
+  --exclude 'output/**'
 ```
+
+也可直接编辑 `.to` 后执行 `skm scan provider <zid>` 刷新 catalog。`link` / `sync` 会按 `.to` 规则复制文件；改规则后对已附着副本执行 `skm skills sync <zid>`。
+
+**对照示例**
+
+- Shell-only skill（如 `tingwu-transcribe`）：`SKILL.md` + `scripts/**` + `references/**`，排除用户音频与输出。
+- CLI skill 仓库（如 `openapi`）：`SKILL.md` + `assets/**` + `bin/**` + `scripts/**`，排除 Go 源码与测试。
 
 创建附着副本：
 
@@ -169,6 +217,12 @@ skm skills move SKIL0001 --to PROV0003
 
 ```bash
 skm skills sync SKIL0002
+```
+
+从关联源同步到全部关联副本：
+
+```bash
+skm skills sync-copies SKIL0001
 ```
 
 删除 skill：
@@ -196,6 +250,8 @@ skm issues -json
 
 - 先查后改：先用 `providers`、`skills`、`issues` 的只读命令拿到上下文，再执行写操作。
 - 改动前锁定对象：对 `update`、`delete`、`link`、`move`、`sync`，先确认目标 `zid` 是否正确。
+- 维护 `.to` 时以「agent 执行 skill 所需最小文件集」为准：漏 include 会导致附着副本缺脚本或 spec；误 include 源码会膨胀副本且无助于调用。
+- 关联源更新后，用 `skm skills sync-copies <source-zid>` 或 UI「同步全部副本」推送至所有 `.to` 目录；单个副本仍用 `skm skills sync <copy-zid>`。
 - 扫描优先：遇到“界面没刷新”“skill 丢失”“冲突状态不对”时，优先尝试 `skm scan all` 或 `skm scan provider`。
 - JSON 优先：当后续需要结构化分析或二次处理时，使用支持 `--json` 的命令。
 - 破坏性操作最小化：除非用户明确要求，否则不要直接执行 `move`、`delete` 这类不可逆或高影响命令。

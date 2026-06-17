@@ -142,6 +142,7 @@ func newRouter(gdb *gorm.DB, logger *zap.Logger) http.Handler {
 		api.GET("/skills/:zid", skillHandler.Get)
 		api.DELETE("/skills/:zid", skillHandler.Delete)
 		api.POST("/skills/:zid/sync", skillHandler.Sync)
+		api.POST("/skills/:zid/sync-copies", skillHandler.SyncCopies)
 		api.POST("/skills/:zid/relation/remove", skillHandler.RemoveRelation)
 		api.GET("/skills/:zid/files", skillHandler.Files)
 		api.GET("/skills/:zid/file-content", skillHandler.FileContent)

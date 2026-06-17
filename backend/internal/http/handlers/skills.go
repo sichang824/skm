@@ -146,6 +146,29 @@ func (h *SkillHandler) Sync(c *gin.Context) {
 	response.OK(c, result)
 }
 
+func (h *SkillHandler) SyncCopies(c *gin.Context) {
+	result, err := h.catalog.SyncSkillCopies(c.Request.Context(), c.Param("zid"))
+	if err != nil {
+		writeServiceError(c, err)
+		return
+	}
+
+	providerZids := result.ScannedProviderZids
+	if len(providerZids) == 0 {
+		providerZids = []string{result.Provider.Zid}
+	}
+	for _, providerZid := range providerZids {
+		job, scanErr := h.scanner.ScanProviderByZid(c.Request.Context(), providerZid)
+		if scanErr != nil {
+			continue
+		}
+		if providerZid == result.Provider.Zid {
+			result.Job = job
+		}
+	}
+	response.OK(c, result)
+}
+
 func (h *SkillHandler) RemoveRelation(c *gin.Context) {
 	result, err := h.catalog.RemoveSkillRelation(c.Request.Context(), c.Param("zid"))
 	if err != nil {

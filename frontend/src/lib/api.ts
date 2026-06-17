@@ -151,6 +151,22 @@ export interface SkillSyncResult {
   job?: ScanJob;
 }
 
+export interface SkillCopySyncEntry {
+  skillZid?: string;
+  targetPath: string;
+  synced: boolean;
+}
+
+export interface SkillSyncCopiesResult {
+  skillZid: string;
+  provider: Provider;
+  sourcePath: string;
+  copies: SkillCopySyncEntry[];
+  synced: boolean;
+  scannedProviderZids?: string[];
+  job?: ScanJob;
+}
+
 export interface SkillRemoveRelationResult {
   skillZid: string;
   provider: Provider;
@@ -271,6 +287,7 @@ export const api = {
     body: JSON.stringify(input),
   }),
   syncSkill: (zid: string) => request<SkillSyncResult>(`/api/skills/${zid}/sync`, { method: "POST" }),
+  syncSkillCopies: (zid: string) => request<SkillSyncCopiesResult>(`/api/skills/${zid}/sync-copies`, { method: "POST" }),
   removeSkillRelation: (zid: string) =>
     request<SkillRemoveRelationResult>(`/api/skills/${zid}/relation/remove`, { method: "POST" }),
   attachSkill: (zid: string, input: SkillAttachInput) =>

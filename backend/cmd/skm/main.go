@@ -364,6 +364,8 @@ func runSkills(args []string, stdout, stderr io.Writer) int {
 		return runSkillsAttach(args[1:], stdout, stderr, "move")
 	case "sync":
 		return runSkillsSync(args[1:], stdout, stderr)
+	case "sync-copies":
+		return runSkillsSyncCopies(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown skills subcommand: %s\n", args[0])
 		return 2
@@ -692,6 +694,67 @@ func runSkillsSync(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runSkillsSyncCopies(args []string, stdout, stderr io.Writer) int {
+	fs := newFlagSet("skills sync-copies", stderr)
+	jsonOutput := fs.Bool("json", false, "output JSON")
+	skillZid, err := parseSinglePositional(fs, args)
+	if err != nil {
+		return 2
+	}
+	if skillZid == "" {
+		fmt.Fprintln(stderr, "usage: skm skills sync-copies <skill-zid>")
+		return 2
+	}
+
+	deps, err := openDeps()
+	if err != nil {
+		return printError(stderr, err)
+	}
+	defer deps.close()
+
+	result, err := deps.catalog.SyncSkillCopies(context.Background(), skillZid)
+	if err != nil {
+		if errors.Is(err, service.ErrSkillNotFound) {
+			fmt.Fprintf(stderr, "skill not found: %s\n", skillZid)
+			return 1
+		}
+		return printError(stderr, err)
+	}
+
+	providerZids := result.ScannedProviderZids
+	if len(providerZids) == 0 {
+		providerZids = []string{result.Provider.Zid}
+	}
+	for _, providerZid := range providerZids {
+		job, scanErr := deps.scan.ScanProviderByZid(context.Background(), providerZid)
+		if scanErr != nil {
+			return printError(stderr, scanErr)
+		}
+		if providerZid == result.Provider.Zid {
+			result.Job = job
+		}
+	}
+
+	if *jsonOutput {
+		return writeJSON(stdout, result, stderr)
+	}
+
+	fmt.Fprintf(stdout, "Synced source skill: %s\n", result.SkillZid)
+	fmt.Fprintf(stdout, "Source: %s\n", result.SourcePath)
+	fmt.Fprintf(stdout, "Copies: %d\n", len(result.Copies))
+	for _, copy := range result.Copies {
+		if copy.SkillZid != "" {
+			fmt.Fprintf(stdout, "  - %s (%s)\n", copy.TargetPath, copy.SkillZid)
+		} else {
+			fmt.Fprintf(stdout, "  - %s\n", copy.TargetPath)
+		}
+	}
+	if result.Job != nil {
+		fmt.Fprintf(stdout, "Rescan job: %s\n", result.Job.Zid)
+	}
+	return 0
+}
+
 func runIssues(args []string, stdout, stderr io.Writer) int {
 	fs := newFlagSet("issues", stderr)
 	jsonOutput := fs.Bool("json", false, "output JSON")
@@ -985,6 +1048,7 @@ func printSkillsUsage(out io.Writer) {
 	fmt.Fprintln(out, "  skm skills link <skill-zid> --to <provider-zid> [--json]")
 	fmt.Fprintln(out, "  skm skills move <skill-zid> --to <provider-zid> [--json]")
 	fmt.Fprintln(out, "  skm skills sync <skill-zid> [--json]")
+	fmt.Fprintln(out, "  skm skills sync-copies <skill-zid> [--json]")
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Available Commands:")
 	fmt.Fprintln(out, "  delete    Delete a skill")
@@ -992,6 +1056,7 @@ func printSkillsUsage(out io.Writer) {
 	fmt.Fprintln(out, "  link      Create an attached copy in another provider")
 	fmt.Fprintln(out, "  move      Move a skill to another provider")
 	fmt.Fprintln(out, "  sync      Sync an attached copy from its source")
+	fmt.Fprintln(out, "  sync-copies  Sync all attached copies from a relation source")
 	fmt.Fprintln(out, "  to        Create or update .to metadata in the current skill directory")
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Flags:")

@@ -190,6 +190,28 @@ export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted, onSynced
     }
   }
 
+  async function handleSyncSkillCopies() {
+    if (!zid || !skill || skill.relation?.mode !== "to") {
+      return;
+    }
+    const copyCount = skill.relation.directories?.length ?? 0;
+    if (copyCount === 0) {
+      toast.error("当前 Skill 没有关联副本目录");
+      return;
+    }
+    setSyncing(true);
+    try {
+      const result = await api.syncSkillCopies(zid);
+      toast.success(`${skill.name} 已同步到 ${result.copies.length} 个关联副本`);
+      await loadSkillDetail(zid, () => true);
+      onSynced?.();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "同步关联副本失败");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   async function handleRemoveRelation() {
     if (!zid || !skill?.relation) {
       return;
@@ -377,8 +399,21 @@ export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted, onSynced
               ) : isRelationOutputPreview ? (
                 <div className="space-y-4 text-sm text-slate-700">
                   <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
-                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">关联输出概览</div>
-                    <div className="mt-3 text-sm text-blue-900">{`${skill.relation?.directories?.length ?? 0} 个目录，${skill.relation?.include?.length ?? 0} 条包含规则，${skill.relation?.exclude?.length ?? 0} 条排除规则`}</div>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">关联输出概览</div>
+                        <div className="mt-3 text-sm text-blue-900">{`${skill.relation?.directories?.length ?? 0} 个目录，${skill.relation?.include?.length ?? 0} 条包含规则，${skill.relation?.exclude?.length ?? 0} 条排除规则`}</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void handleSyncSkillCopies()}
+                        disabled={syncing || (skill.relation?.directories?.length ?? 0) === 0}
+                        className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded border border-blue-200 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+                        {syncing ? "同步中" : "同步全部副本"}
+                      </button>
+                    </div>
                   </div>
                   <div className="grid gap-4 lg:grid-cols-3">
                     <div className="rounded-xl border border-slate-200 bg-white p-4">
@@ -411,6 +446,10 @@ export function SkillDetailDialog({ zid, open, onOpenChange, onDeleted, onSynced
                         <p className="text-sm text-slate-500">暂无关联目录</p>
                       )}
                     </div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="text-sm font-medium text-slate-800">说明</div>
+                    <p className="mt-2 leading-6 text-slate-600">当前 Skill 是关联源。点击“同步全部副本”后，会按 `.to` 规则把来源目录覆盖同步到每一个关联副本目录。</p>
                   </div>
                 </div>
               ) : isSkillMarkdown ? (
