@@ -440,7 +440,7 @@ export function SkillsPage() {
       ) : null}
 
       <Dialog open={attachDialogOpen} onOpenChange={closeAttachDialog}>
-        <DialogContent className="max-w-2xl rounded-2xl border-slate-200 bg-white p-0 shadow-[0_24px_90px_rgba(15,23,42,0.16)]" showCloseButton={false}>
+        <DialogContent className="sm:max-w-4xl rounded-2xl border-slate-200 bg-white p-0 shadow-[0_24px_90px_rgba(15,23,42,0.16)]" showCloseButton={false}>
           <div className="border-b border-slate-200 px-6 py-5">
             <DialogHeader className="gap-2 text-left">
               <DialogTitle className="text-xl font-semibold text-slate-900">拖拽操作确认</DialogTitle>

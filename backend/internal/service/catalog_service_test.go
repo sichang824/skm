@@ -1132,6 +1132,105 @@ func assertPathMissing(t *testing.T, targetPath string) {
 	}
 }
 
+func TestDeleteProviderCascadesSoftDeleteSkills(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	baseDir := t.TempDir()
+	providerRoot := filepath.Join(baseDir, "provider")
+	provider := createTestProvider(t, db, "Cascade Provider", providerRoot)
+	skillA := createTestSkill(t, db, provider, filepath.Join(providerRoot, "skill-a"), "skill_a")
+	skillB := createTestSkill(t, db, provider, filepath.Join(providerRoot, "skill-b"), "skill_b")
+
+	if err := service.DeleteProvider(ctx, provider.Zid); err != nil {
+		t.Fatalf("DeleteProvider returned error: %v", err)
+	}
+
+	var activeSkills int64
+	if err := db.Model(&models.Skill{}).Where("provider_id = ?", provider.ID).Count(&activeSkills).Error; err != nil {
+		t.Fatalf("count active skills: %v", err)
+	}
+	if activeSkills != 0 {
+		t.Fatalf("expected no active skills after provider delete, got %d", activeSkills)
+	}
+
+	var deletedSkills int64
+	if err := db.Unscoped().Model(&models.Skill{}).
+		Where("provider_id = ? AND deleted_at IS NOT NULL", provider.ID).
+		Count(&deletedSkills).Error; err != nil {
+		t.Fatalf("count soft-deleted skills: %v", err)
+	}
+	if deletedSkills != 2 {
+		t.Fatalf("expected 2 soft-deleted skills, got %d", deletedSkills)
+	}
+
+	for _, skill := range []*models.Skill{skillA, skillB} {
+		if _, err := service.GetSkill(ctx, skill.Zid); !errors.Is(err, ErrSkillNotFound) {
+			t.Fatalf("expected GetSkill(%s) to return not found, got err=%v", skill.Zid, err)
+		}
+	}
+}
+
+func TestListSkillsExcludesSkillsWithDeletedProvider(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	baseDir := t.TempDir()
+	activeRoot := filepath.Join(baseDir, "active")
+	deletedRoot := filepath.Join(baseDir, "deleted")
+	activeProvider := createTestProvider(t, db, "Active Provider", activeRoot)
+	deletedProvider := createTestProvider(t, db, "Deleted Provider", deletedRoot)
+	createTestSkill(t, db, activeProvider, filepath.Join(activeRoot, "visible-skill"), "visible_skill")
+	orphanSkill := createTestSkill(t, db, deletedProvider, filepath.Join(deletedRoot, "orphan-skill"), "orphan_skill")
+
+	if err := db.Delete(deletedProvider).Error; err != nil {
+		t.Fatalf("soft delete provider: %v", err)
+	}
+
+	skills, err := service.ListSkills(ctx, SkillListFilters{Sort: "name"})
+	if err != nil {
+		t.Fatalf("ListSkills returned error: %v", err)
+	}
+	for _, skill := range skills {
+		if skill.Zid == orphanSkill.Zid {
+			t.Fatalf("expected orphan skill %s to be excluded from ListSkills", orphanSkill.Zid)
+		}
+	}
+}
+
+func TestDeleteSkillOrphanedAfterProviderDeleted(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	baseDir := t.TempDir()
+	providerRoot := filepath.Join(baseDir, "provider")
+	provider := createTestProvider(t, db, "Orphan Provider", providerRoot)
+	skill := createTestSkill(t, db, provider, filepath.Join(providerRoot, "orphan-skill"), "orphan_skill")
+
+	if err := db.Delete(provider).Error; err != nil {
+		t.Fatalf("soft delete provider without cascade: %v", err)
+	}
+
+	result, err := service.DeleteSkill(ctx, skill.Zid, SkillDeleteInput{})
+	if err != nil {
+		t.Fatalf("DeleteSkill orphaned skill returned error: %v", err)
+	}
+	if result.DeleteMode != "catalog-orphan" {
+		t.Fatalf("unexpected delete mode: got %s want catalog-orphan", result.DeleteMode)
+	}
+
+	var activeSkills int64
+	if err := db.Model(&models.Skill{}).Where("zid = ?", skill.Zid).Count(&activeSkills).Error; err != nil {
+		t.Fatalf("count active skill: %v", err)
+	}
+	if activeSkills != 0 {
+		t.Fatalf("expected orphan skill record to be soft-deleted, got %d active rows", activeSkills)
+	}
+}
+
 func TestListIssuesLatestDedupesAcrossLatestJobs(t *testing.T) {
 	db := openCatalogTestDB(t)
 

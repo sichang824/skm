@@ -285,14 +285,19 @@ func (s *CatalogService) DeleteProvider(ctx context.Context, zid string) error {
 	if err != nil {
 		return err
 	}
-	return s.db.WithContext(ctx).Delete(provider).Error
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("provider_id = ?", provider.ID).Delete(&models.Skill{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(provider).Error
+	})
 }
 
 func (s *CatalogService) ListSkills(ctx context.Context, filters SkillListFilters) ([]models.Skill, error) {
 	query := s.db.WithContext(ctx).
 		Model(&models.Skill{}).
 		Preload("Provider").
-		Joins("JOIN providers ON providers.id = skills.provider_id").
+		Joins("JOIN providers ON providers.id = skills.provider_id AND providers.deleted_at IS NULL").
 		Where("providers.enabled = ?", true)
 
 	if filters.Query != "" {
@@ -351,7 +356,7 @@ func (s *CatalogService) GetSkill(ctx context.Context, zid string) (*models.Skil
 	var skill models.Skill
 	if err := s.db.WithContext(ctx).
 		Preload("Provider").
-		Joins("JOIN providers ON providers.id = skills.provider_id").
+		Joins("JOIN providers ON providers.id = skills.provider_id AND providers.deleted_at IS NULL").
 		Where("skills.zid = ? AND providers.enabled = ?", zid, true).
 		First(&skill).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -360,6 +365,21 @@ func (s *CatalogService) GetSkill(ctx context.Context, zid string) (*models.Skil
 		return nil, err
 	}
 	skill.Relation = readSkillRelationForDisplay(skill.RootPath)
+	return &skill, nil
+}
+
+func (s *CatalogService) getSkillForDelete(ctx context.Context, zid string) (*models.Skill, error) {
+	var skill models.Skill
+	if err := s.db.WithContext(ctx).Where("zid = ?", zid).First(&skill).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrSkillNotFound
+		}
+		return nil, err
+	}
+	var provider models.Provider
+	if err := s.db.WithContext(ctx).Where("id = ?", skill.ProviderID).First(&provider).Error; err == nil {
+		skill.Provider = provider
+	}
 	return &skill, nil
 }
 
@@ -480,12 +500,24 @@ func (s *CatalogService) AttachSkill(ctx context.Context, skillZid string, input
 }
 
 func (s *CatalogService) DeleteSkill(ctx context.Context, skillZid string, input SkillDeleteInput) (*SkillDeleteResult, error) {
-	skill, err := s.GetSkill(ctx, skillZid)
+	skill, err := s.getSkillForDelete(ctx, skillZid)
 	if err != nil {
 		return nil, err
 	}
 
 	deletePath := filepath.Clean(skill.RootPath)
+	if skill.Provider.ID == 0 {
+		if err := s.db.WithContext(ctx).Delete(skill).Error; err != nil {
+			return nil, err
+		}
+		return &SkillDeleteResult{
+			SkillZid:    skill.Zid,
+			Provider:    skill.Provider,
+			DeletedPath: deletePath,
+			Deleted:     true,
+			DeleteMode:  "catalog-orphan",
+		}, nil
+	}
 	providerRoot := filepath.Clean(skill.Provider.RootPath)
 	relation, err := readSkillRelationState(deletePath)
 	if err != nil {
