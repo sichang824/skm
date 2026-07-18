@@ -45,14 +45,45 @@ func Load() (*Config, error) {
 }
 
 func loadEnvFiles() {
-	paths := []string{".env", "backend/.env"}
+	paths := envFilePaths()
+	_ = godotenv.Load(paths...)
+}
+
+func envFilePaths() []string {
+	var paths []string
+
+	if wd, err := os.Getwd(); err == nil {
+		if isBackendWorkspaceDir(wd) {
+			paths = append(paths, filepath.Join(wd, ".env"))
+		}
+		if isRepoWorkspaceDir(wd) {
+			paths = append(paths,
+				filepath.Join(wd, ".env"),
+				filepath.Join(wd, "backend", ".env"),
+			)
+		}
+	}
+
 	if root := projectRootFromExecutable(); root != "" {
 		paths = append(paths,
 			filepath.Join(root, ".env"),
 			filepath.Join(root, "backend", ".env"),
 		)
 	}
-	_ = godotenv.Load(paths...)
+
+	if userEnv, err := userConfigEnvPath(); err == nil {
+		paths = append(paths, userEnv)
+	}
+
+	return paths
+}
+
+func userConfigEnvPath() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(homeDir, ".skm", ".env"), nil
 }
 
 func defaultDBDSN() string {

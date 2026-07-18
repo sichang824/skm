@@ -5,267 +5,138 @@ description: "Use when working with the local skm CLI to manage skill providers,
 
 # Skill: skm CLI
 
-使用这个 skill 来操作本地 `skm` CLI，完成 skill provider 管理、目录扫描、技能检索、附着副本同步、问题排查，以及桌面工作流相关的基础操作。
+用 `skm` CLI 管理 skill provider、catalog、link/sync 副本与 issues。**Provider 是动态的**——运行时向 SKM 查 live catalog，不要背 ZID、路径或数量。
 
-## 适用场景
+## 核心原则
 
-- 用户提到 `skm`、skill provider、catalog scan、issues、dashboard
-- 需要新增、更新、删除 provider
-- 需要扫描一个或全部 provider
-- 需要查询 skill、查看 skill 详情、维护 `.to` 元数据
-- 需要把 skill 附着到另一个 provider，或执行 link、move、sync、sync-copies、delete
-- 需要先用 CLI 核对数据，再去桌面端或前端界面继续操作
+1. **先理解意图，再动手** — 未弄清用户目标前，不要跑写操作。
+2. **先查后改** — `dashboard` / `providers` / `skills` / `issues` 只读优先。
+3. **动态解析 provider** — 用 `skm providers --json` 匹配；歧义时必须让用户选，不能默认。
+4. **不写死 catalog** — skill 里不放 provider 清单、ZID 表、skill 数量。
 
-## 基本约束
+## 第一步：理解意图
 
-- 删除 provider 或 skill 前，默认先展示目标对象并确认影响范围。
-- `move`、`delete`、`providers delete` 属于破坏性操作；如果用户没有明确要求，不要主动执行。
-- 需要脚本化消费结果时，优先使用 `--json`。
-- 当 `issues`、`skills`、`providers` 的参数不明确时，先跑只读查询，避免直接修改状态。
-- 如果本机没有 `skm` 命令，优先在仓库根目录执行 `make cli-install` 或 `make cli-build`。
+收到请求后，先归类（可并存），再选流程：
 
-## 前置条件
+| 意图 | 典型说法 | 走哪条流 |
+|------|---------|---------|
+| 发布 / 附着 | 「link 到全局」「发到 Cursor」「挂到 workspace」 | [Publish 流程](#publish-流程) |
+| 查询 / 核对 | 「有哪些 skill」「provider 对不对」 | 预检 + `providers` / `skills` |
+| 刷新 catalog | 「扫一下」「列表没更新」 | `scan` |
+| 修 `.to` / 副本 | 「同步副本」「只有 .from」 | `.to` 规则 + `sync-copies` |
+| 排障 | 「CLI 没数据」「和 App 不一致」 | [预检](#预检cli-与-app-一致) + issues |
+| 管理 provider | 「加一个 provider」「改 root」 | `providers add/update`（改前确认） |
 
-1. `skm` CLI 可执行文件已安装，或可在仓库内构建：
+**未明确 source / target provider、skill 名、或物理路径时** → 只读查询 + 向用户确认，不要猜。
 
-```bash
-make cli-build
-make cli-install
-```
+## 预检：CLI 与 App 一致
 
-1. 若从源码仓库启动完整环境，可使用：
-
-```bash
-make dev
-```
-
-1. 若要重置并带种子数据启动，可使用：
-
-```bash
-make dev/seed
-```
-
-## 命令总览
-
-顶层命令：
+任何「没数据 / 为空」结论前，先确认 CLI 连对库：
 
 ```bash
 skm dashboard
-skm issues
-skm providers
-skm scan
-skm skills
-skm version
-```
-
-需要查看帮助时：
-
-```bash
-skm --help
-skm providers --help
-skm skills --help
-skm scan --help
-```
-
-## 推荐工作流
-
-### 1. 检查 CLI 与总体状态
-
-先确认 CLI 可用、版本正确，再看 dashboard。
-
-```bash
-skm version
-skm dashboard
-```
-
-如果需要机器可读输出，优先查看子命令是否支持 `--json`。
-
-### 2. 管理 providers
-
-列出当前 providers：
-
-```bash
-skm providers
 skm providers --json
 ```
 
-新增 provider：
+- App 有数据、CLI 为 0 → 查 `DB_DSN` / `DB_DRIVER`（常见：CWD 下无关 `.env` 污染；默认应为 `~/.skm/app.db` + `sqlite`）。
+- 不要未验证 DSN 就断言「没有 provider / skill」。
+
+## 动态解析 Provider
+
+**一律** `skm providers --json`，按优先级匹配：
+
+| 用户说法 | 匹配字段 |
+|---------|---------|
+| 明确名称（如 "Workspace Skills"） | `name` 精确或模糊 |
+| 明确路径 | `rootPath` |
+| 模糊词（「全局」「cursor」「workspace」） | 多命中 → **列候选让用户选** |
+
+解析到 provider 后，口头或回复中确认：`name`、`rootPath`、zid（来自查询结果，非 skill 记忆）。
+
+## Publish 流程
+
+把 skill **从 source provider 发布到 target provider**（link 副本）时，按序执行：
+
+**0. 预检** — `skm dashboard` / `skm providers --json`（见上）
+
+**1. 解析 target** — 动态查 provider；歧义则问用户
+
+**2. 确认 source 与物理位置**
+
+- 技能须在 **source provider 的 `rootPath` 下**，且为**真实目录**（不要用 symlink 当源）
+- 不在 → 用户要求 `mv` 就 `mv` 进去；未要求 relocate 则先问
+- 不要擅自 symlink 代替 mv
+
+**3. 刷新 catalog**
 
 ```bash
-skm providers add \
-  --name "Workspace Skills" \
-  --type workspace \
-  --root ~/Workspace/skills
+skm scan provider <source-provider-zid>
+skm skills --provider "<source-name>" --query <skill-name>
 ```
 
-可选参数包括：`--scan-mode recursive|shallow`、`--enabled`、`--priority`、`--icon`、`--description`。
-
-更新 provider：
+**4. Link + 同步**
 
 ```bash
-skm providers update PROV0001 --priority 400 --description "main workspace provider"
+skm skills link <source-skill-zid> --to <target-provider-zid>
+skm skills sync-copies <source-skill-zid>
 ```
 
-删除 provider：
+**5. 验证**
 
 ```bash
-skm providers delete PROV0001
+skm skills get <source-skill-zid>    # relation targets 正确
+ls <target-rootPath>/<skill-dir>/    # 文件齐全，不只是 .from
 ```
 
-### 3. 执行扫描
+link 后只有 `.from` → 源必须是真实目录，补 `.to` 规则后再 `sync-copies`。
 
-扫描全部 providers：
+## 不变量
 
-```bash
-skm scan all
-```
+- **源目录**：真实目录，位于 source provider `rootPath` 内。
+- **Provider**：运行时查 catalog；名称/路径模糊时禁止默认。
+- **破坏性操作**：`move`、`delete`、`providers delete` 仅在用户明确要求时执行；执行前展示目标与影响。
+- **CLI/App**：dashboard 为空先查 DSN，再下结论。
+- **JSON**：需要结构化分析时用 `--json`。
+- **扫描**：列表 stale、冲突不对 → 先 `scan provider` 或 `scan all`。
+- **副本同步**：源更新后 `sync-copies <source-zid>`；单副本用 `skills sync <copy-zid>`。
 
-扫描单个 provider：
+## `.to` 元数据
 
-```bash
-skm scan provider PROV0001
-```
+`.to` 定义 link/sync 时复制到消费端的文件子集。**手写只填 `include` / `exclude`；`directories` 由 link 写入。**
 
-当用户反馈目录内容没同步、skill 列表不更新、issues 结果过旧时，优先先做一次 scan。
-
-### 4. 查询和管理 skills
-
-按条件列出 skills：
-
-```bash
-skm skills
-skm skills --provider "Workspace Skills"
-skm skills --query prompt --sort lastScanned
-skm skills --conflict true
-skm skills --json
-```
-
-查看单个 skill：
-
-```bash
-skm skills get SKIL0001
-```
-
-### 维护 `.to` 元数据
-
-`.to` 是 skill 目录里的 JSON 文件，定义 **attach / sync 时要复制到消费端（如 `~/.cursor/skills/...`）的文件子集**。
-
-**原则：包含 skill 被调用时需要的全部内容；排除源码、构建产物和运行时垃圾。**
-
-| 通常应 `include` | 通常应 `exclude` |
-|------------------|------------------|
-| `SKILL.md` | 语言源码（如 `internal/**`、`cmd/**`、`*.go`、`src/**`） |
-| `scripts/**`、可执行包装脚本 | 测试（`**/*_test.*`、`**/*.test.*`、`testdata/**`） |
-| `references/**`（OpenAPI、API 说明、配置模板） | 构建输出（`bin/**`、`dist/**`、`node_modules/**`） |
-| `assets/**`（skill 运行时引用的静态资源） | 用户数据、缓存、日志、cookie（`media/**`、`output/**`、`*.log`） |
-| `Makefile`（若 skill 文档里会 `make ...`） | 密钥、本地配置（`.env`、`*_secret*`） |
-| 预编译 CLI 二进制（若 skill 直接调用且仓库内分发） | `.git/**`、`.to`、`.from`、编辑器目录 |
-
-`directories` 由 `skm skills link` / sync 流程写入，表示已附着副本的目标路径。**手写 `.to` 时只维护 `include` / `exclude`，不要填 `directories`。**
-
-文件格式示例（仅规则，无目标路径）：
-
-```json
-{
-  "include": [
-    "SKILL.md",
-    "Makefile",
-    "scripts/**",
-    "references/**"
-  ],
-  "exclude": [
-    "**/.DS_Store",
-    "media/**",
-    "output/**"
-  ]
-}
-```
-
-用 CLI 创建或更新（在 skill 目录内执行；`--include` / `--exclude` 可重复）：
+| 通常 `include` | 通常 `exclude` |
+|----------------|----------------|
+| `SKILL.md` | 源码（`internal/**`、`cmd/**`、`src/**`） |
+| `scripts/**`、`references/**` | 测试、构建产物（`bin/**`、`dist/**`、`node_modules/**`） |
+| `assets/**`、运行时需要的 `Makefile` | 用户数据、日志、密钥（`.env`、`media/**`、`output/**`） |
 
 ```bash
 cd path/to/skill
-skm skills to \
-  --include SKILL.md \
-  --include Makefile \
-  --include 'scripts/**' \
-  --include 'references/**' \
-  --exclude 'media/**' \
-  --exclude 'output/**'
+skm skills to --include SKILL.md --include 'scripts/**' --exclude 'media/**'
 ```
 
-也可直接编辑 `.to` 后执行 `skm scan provider <zid>` 刷新 catalog。`link` / `sync` 会按 `.to` 规则复制文件；改规则后对已附着副本执行 `skm skills sync <zid>`。
+改 `.to` 后：`scan provider` → 对已附着副本 `skills sync` 或 `sync-copies`。
 
-**对照示例**
-
-- Shell-only skill（如 `tingwu-transcribe`）：`SKILL.md` + `scripts/**` + `references/**`，排除用户音频与输出。
-- CLI skill 仓库（如 `openapi`）：`SKILL.md` + `assets/**` + `bin/**` + `scripts/**`，排除 Go 源码与测试。
-
-创建附着副本：
+## 命令速查
 
 ```bash
-skm skills link SKIL0001 --to PROV0002
+skm version | dashboard | providers [--json] | skills [--json] | issues | scan all | scan provider <zid>
+skm skills get <zid> | skills link <zid> --to <prov-zid> | skills sync <zid> | skills sync-copies <zid>
+skm providers add | update | delete    # delete 需用户明确授权
+skm skills move | delete               # 破坏性，需用户明确授权
 ```
 
-移动 skill 到另一个 provider：
+CLI 未安装：在 skm 仓库执行 `make cli-install`。开发栈：`make dev` / `make dev/seed`。
 
-```bash
-skm skills move SKIL0001 --to PROV0003
-```
+## 排障顺序
 
-同步附着副本：
-
-```bash
-skm skills sync SKIL0002
-```
-
-从关联源同步到全部关联副本：
-
-```bash
-skm skills sync-copies SKIL0001
-```
-
-删除 skill：
-
-```bash
-skm skills delete SKIL0002
-skm skills delete SKIL0002 --force
-```
-
-### 5. 查看 catalog issues
-
-`issues` 没有子命令，直接通过 flags 过滤：
-
-```bash
-skm issues
-skm issues -view latest
-skm issues -view all -severity error
-skm issues -provider PROV0001 -code CONFLICT_SKILL_NAME
-skm issues -json
-```
-
-当用户想定位冲突、扫描异常、目录结构问题时，先查看 issues，再决定是否补扫或调整 provider。
-
-## Agent 操作建议
-
-- 先查后改：先用 `providers`、`skills`、`issues` 的只读命令拿到上下文，再执行写操作。
-- 改动前锁定对象：对 `update`、`delete`、`link`、`move`、`sync`，先确认目标 `zid` 是否正确。
-- 维护 `.to` 时以「agent 执行 skill 所需最小文件集」为准：漏 include 会导致附着副本缺脚本或 spec；误 include 源码会膨胀副本且无助于调用。
-- 关联源更新后，用 `skm skills sync-copies <source-zid>` 或 UI「同步全部副本」推送至所有 `.to` 目录；单个副本仍用 `skm skills sync <copy-zid>`。
-- 扫描优先：遇到“界面没刷新”“skill 丢失”“冲突状态不对”时，优先尝试 `skm scan all` 或 `skm scan provider`。
-- JSON 优先：当后续需要结构化分析或二次处理时，使用支持 `--json` 的命令。
-- 破坏性操作最小化：除非用户明确要求，否则不要直接执行 `move`、`delete` 这类不可逆或高影响命令。
-
-## 常见排障顺序
-
-1. `skm version`，确认 CLI 存在且版本正常。
-2. `skm providers`，确认 provider 已注册且根目录正确。
-3. `skm scan all` 或 `skm scan provider <zid>`，刷新 catalog。
-4. `skm issues`，查看是否有冲突、缺失、扫描异常。
-5. `skm skills` / `skm skills get <zid>`，确认目标 skill 当前状态。
+1. `skm version` + `skm dashboard`
+2. `skm providers --json` — 空则查 DSN
+3. `skm scan all` 或 `scan provider <zid>`
+4. `skm issues`
+5. `skm skills get <zid>`
 
 ## 何时不用这个 skill
 
-- 任务是修改 `skm` 源码实现本身，而不是使用 CLI。
-- 任务重点是前端页面、Wails 桌面宿主或后端 API 调试，此时应优先查看对应代码和测试。
-- 用户只需要仓库开发命令，如 `make dev`、`make test`、`make app-build`，而不涉及 CLI 操作流。
+- 改 `skm` 源码、Wails 宿主、前端 API 调试（非 CLI 操作流）。
+- 仅需 `make dev` / `make test` / `make app-build` 等仓库开发命令。
