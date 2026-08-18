@@ -247,6 +247,68 @@ func TestPersistScanDedupesDuplicateDiscoveredRoots(t *testing.T) {
 	}
 }
 
+func TestPersistScanStoresSkillCommands(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewScanService(db)
+	provider := createTestProvider(t, db, "Agents Global", t.TempDir())
+	providerID := provider.ID
+	job := &models.ScanJob{
+		ProviderID: &providerID,
+		Scope:      "provider",
+		StartedAt:  time.Now(),
+		Status:     "running",
+		LogLines:   []string{},
+	}
+	if err := db.Create(job).Error; err != nil {
+		t.Fatalf("create scan job: %v", err)
+	}
+
+	rootPath := filepath.Join(provider.RootPath, "with-manifest")
+	modifiedAt := time.Now()
+	discovered := discoveredSkill{
+		RootPath:       rootPath,
+		SkillMdPath:    filepath.Join(rootPath, "SKILL.md"),
+		DirectoryName:  "with-manifest",
+		Name:           "with-manifest",
+		Slug:           "with-manifest",
+		Status:         "ready",
+		ContentHash:    "hash-1",
+		LastModifiedAt: &modifiedAt,
+		IssueCodes:     []string{},
+		Tags:           []string{},
+		Commands: []models.SkillCommand{
+			{Name: "run", Line: "bash scripts/run.sh", Description: "Run it", Confirm: "requires confirmation before running", TimeoutSeconds: 60, InputVia: "stdin", HasInputSchema: true, Env: []string{"RUN_KEY"}},
+		},
+	}
+
+	if _, _, _, _, _, err := service.persistScan(context.Background(), provider, job, []discoveredSkill{discovered}, nil); err != nil {
+		t.Fatalf("persistScan returned error: %v", err)
+	}
+
+	var skills []models.Skill
+	if err := db.Where("provider_id = ?", provider.ID).Find(&skills).Error; err != nil {
+		t.Fatalf("load saved skills: %v", err)
+	}
+	if len(skills) != 1 {
+		t.Fatalf("expected 1 saved skill, got %d", len(skills))
+	}
+	if len(skills[0].Commands) != 1 {
+		t.Fatalf("expected 1 persisted command, got %d", len(skills[0].Commands))
+	}
+	if !skillCommandsEqual(skills[0].Commands, discovered.Commands) {
+		t.Fatalf("persisted commands differ from discovered: got %+v want %+v", skills[0].Commands, discovered.Commands)
+	}
+
+	// A changed command list must count as a changed skill on the next scan.
+	changed := discovered
+	changed.Commands = []models.SkillCommand{{Name: "run", Line: "bash scripts/run.sh"}}
+	if _, _, _, changedCount, _, err := service.persistScan(context.Background(), provider, job, []discoveredSkill{changed}, nil); err != nil {
+		t.Fatalf("re-persist returned error: %v", err)
+	} else if changedCount != 1 {
+		t.Fatalf("expected changedCount=1 after command list change, got %d", changedCount)
+	}
+}
+
 func TestPersistScanRevivesSoftDeletedSkill(t *testing.T) {
 	db := openCatalogTestDB(t)
 	service := NewScanService(db)

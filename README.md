@@ -174,7 +174,11 @@ skm providers add --name "Workspace Skills" --type workspace --root ~/Workspace/
 skm providers update PROV0001 --priority 400 --description "main workspace provider"
 skm providers delete PROV0001
 skm skills --provider "Workspace Skills"
-skm skills get SKIL0001
+skm skills -q jira                       # fuzzy search by name, slug, tags, category, provider, or summary
+skm skills --query "jira issue" --provider "Workspace Skills" --status ready   # combines with all filters
+skm skills get SKIL0001                    # skill info + SKILL.md content + directory path
+skm skills get SKIL0001 --files            # skill info + ls-style listing of all files
+skm skills get SKIL0001 scripts/run.sh     # file info + file content (binary files show info only)
 skm skills to --provider PROV0002 --include README.md --include scripts/** --exclude plugins/**
 skm skills link SKIL0001 --to PROV0002
 skm skills move SKIL0001 --to PROV0003

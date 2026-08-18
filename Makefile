@@ -1,5 +1,9 @@
 SHELL := /bin/sh
 
+# The workspace root above this repo carries an unrelated go.work; keep the
+# skm build self-contained unless the caller opts back in (GOWORK=).
+export GOWORK ?= off
+
 BACKEND_DIR := backend
 FRONTEND_DIR := frontend
 DB_FILE := $(BACKEND_DIR)/data/app.db

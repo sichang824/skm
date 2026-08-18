@@ -371,6 +371,7 @@ export function SkillsPage() {
                             <div>
                               <div className="flex items-center gap-2">
                                 <span>{skill.name}</span>
+                                {skill.commands && skill.commands.length > 0 ? <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700" title={`${skill.commands.length} 个可执行命令`}>可执行</span> : null}
                                 {skill.relation?.mode === "to" ? <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">关联源</span> : null}
                                 {relatedSkills.length > 0 ? <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">{relatedSkills.length} 个关联副本</span> : null}
                               </div>
@@ -404,6 +405,7 @@ export function SkillsPage() {
                                 <div className="flex items-center gap-2">
                                   <span>{relatedSkill.name}</span>
                                   <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">关联副本</span>
+                                  {relatedSkill.commands && relatedSkill.commands.length > 0 ? <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700" title={`${relatedSkill.commands.length} 个可执行命令`}>可执行</span> : null}
                                 </div>
                                 <div className="mt-0.5 max-w-md truncate text-xs font-normal text-slate-500">{relatedSkill.summary || relatedSkill.rootPath}</div>
                               </div>

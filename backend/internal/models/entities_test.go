@@ -39,6 +39,7 @@ func TestGetPrefixForTable(t *testing.T) {
 		{"skills", "SKIL"},
 		{"scan_jobs", "SCAN"},
 		{"scan_issues", "SISS"},
+		{"exec_records", "EXEC"},
 		{"unknown", ""},
 	}
 

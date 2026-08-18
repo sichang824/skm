@@ -45,6 +45,7 @@ export interface Skill {
   rawMarkdown?: string;
   bodyMarkdown?: string;
   frontmatter?: Record<string, unknown>;
+  commands?: SkillCommand[];
   issueCodes: string[];
   conflictKinds: string[];
   isConflict: boolean;
@@ -52,6 +53,121 @@ export interface Skill {
   provider?: Provider;
   relation?: SkillRelation;
   relatedSkills?: Skill[];
+}
+
+export interface SkillCommand {
+  name: string;
+  description?: string;
+  line: string;
+  confirm?: string;
+  timeoutSeconds?: number;
+  env?: string[];
+  inputVia?: string;
+  hasInputSchema?: boolean;
+}
+
+export interface CommandsView {
+  skillZid: string;
+  skillName: string;
+  skillRoot: string;
+  source: string;
+  runtimeEnv?: string[];
+  setup?: string;
+  commands: SkillCommand[];
+  note?: string;
+}
+
+export interface SkillExecPayload {
+  command: string;
+  args?: string[];
+  input?: string;
+  env?: string[];
+  assumeYes?: boolean;
+  timeoutSeconds?: number;
+  isolate?: boolean;
+  pin?: string;
+  dryRun?: boolean;
+}
+
+export interface ExecSetupInfo {
+  command: string;
+  ran?: boolean;
+  skipped?: boolean;
+  exitCode?: number;
+  timedOut?: boolean;
+  durationMs?: number;
+  output?: string;
+}
+
+export interface ExecDepsInfo {
+  node?: string;
+  python?: string;
+  ran?: boolean;
+  skipped?: boolean;
+  exitCode?: number;
+  timedOut?: boolean;
+  durationMs?: number;
+  output?: string;
+}
+
+export interface ExecPlan {
+  workDir: string;
+  mode: string;
+  sourceDir?: string;
+  cacheReused?: boolean;
+  materialized?: boolean;
+  pin?: string;
+  commandLine: string;
+  args?: string[];
+  inputVia?: string;
+  inputBytes?: number;
+  envAdditions?: string[];
+  timeoutSeconds?: number;
+  confirm?: string;
+  setup?: string;
+  setupSkipped?: boolean;
+  deps?: string[];
+  depsSkipped?: boolean;
+}
+
+export interface SkillExecResult {
+  ok: boolean;
+  exitCode: number;
+  timedOut: boolean;
+  dryRun?: boolean;
+  aborted?: string;
+  skillZid: string;
+  skillName: string;
+  command: string;
+  workDir: string;
+  durationMs: number;
+  stdout?: string;
+  stderr?: string;
+  deps?: ExecDepsInfo;
+  setup?: ExecSetupInfo;
+  plan?: ExecPlan;
+}
+
+export interface ExecRecord {
+  zid: string;
+  skillZid: string;
+  skillName: string;
+  command: string;
+  trigger: string;
+  who?: string;
+  workDir?: string;
+  mode?: string;
+  pin?: string;
+  sourceHash?: string;
+  status: "completed" | "failed" | "timeout" | "setup_failed" | "deps_failed" | "rejected";
+  exitCode: number;
+  timedOut: boolean;
+  reason?: string;
+  args?: string[];
+  envKeys?: string[];
+  inputVia?: string;
+  durationMs: number;
+  startedAt: string;
 }
 
 export interface SkillRelation {
@@ -230,6 +346,18 @@ export interface IssueQuery {
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 
+// ApiRequestError carries the HTTP status so callers can react to specific
+// failures (e.g. 409 = exec confirm gate needs user approval).
+export class ApiRequestError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
@@ -241,7 +369,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   const payload = (await response.json()) as ApiResponse<T>;
   if (!response.ok || payload.code !== 0) {
-    throw new Error(payload.message || "Request failed");
+    throw new ApiRequestError(response.status, payload.message || "Request failed");
   }
   return payload.data;
 }
@@ -298,6 +426,14 @@ export const api = {
   getSkillFiles: (zid: string) => request<FileNode[]>(`/api/skills/${zid}/files`),
   getSkillFileContent: (zid: string, path: string) =>
     request<FileContent>(`/api/skills/${zid}/file-content${toQueryString({ path })}`),
+  getSkillCommands: (zid: string) => request<CommandsView>(`/api/skills/${zid}/commands`),
+  execSkillCommand: (zid: string, payload: SkillExecPayload) =>
+    request<SkillExecResult>(`/api/skills/${zid}/exec`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  getExecs: (query: { skill?: string; limit?: number } = {}) =>
+    request<ExecRecord[]>(`/api/execs${toQueryString(query)}`),
   getIssues: (query: IssueQuery = {}) =>
     request<ScanIssue[]>(`/api/issues${toQueryString(query)}`),
   getConflicts: () => request<ConflictGroup[]>("/api/conflicts"),

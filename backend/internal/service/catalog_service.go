@@ -96,12 +96,13 @@ type IssueListFilters struct {
 }
 
 type FileNode struct {
-	Name       string     `json:"name"`
-	Path       string     `json:"path"`
-	IsDir      bool       `json:"isDir"`
-	Size       int64      `json:"size,omitempty"`
-	ModifiedAt *time.Time `json:"modifiedAt,omitempty"`
-	Children   []FileNode `json:"children,omitempty"`
+	Name       string      `json:"name"`
+	Path       string      `json:"path"`
+	IsDir      bool        `json:"isDir"`
+	Size       int64       `json:"size,omitempty"`
+	Mode       os.FileMode `json:"-"`
+	ModifiedAt *time.Time  `json:"modifiedAt,omitempty"`
+	Children   []FileNode  `json:"children,omitempty"`
 }
 
 type FileContent struct {
@@ -176,23 +177,23 @@ type SkillCopySyncEntry struct {
 }
 
 type SkillSyncCopiesResult struct {
-	SkillZid             string               `json:"skillZid"`
-	Provider             models.Provider      `json:"provider"`
-	SourcePath           string               `json:"sourcePath"`
-	Copies               []SkillCopySyncEntry `json:"copies"`
-	Synced               bool                 `json:"synced"`
-	ScannedProviderZids  []string             `json:"scannedProviderZids,omitempty"`
-	Job                  *models.ScanJob      `json:"job,omitempty"`
+	SkillZid            string               `json:"skillZid"`
+	Provider            models.Provider      `json:"provider"`
+	SourcePath          string               `json:"sourcePath"`
+	Copies              []SkillCopySyncEntry `json:"copies"`
+	Synced              bool                 `json:"synced"`
+	ScannedProviderZids []string             `json:"scannedProviderZids,omitempty"`
+	Job                 *models.ScanJob      `json:"job,omitempty"`
 }
 
 type SkillRemoveRelationResult struct {
-	SkillZid             string          `json:"skillZid"`
-	Provider             models.Provider `json:"provider"`
-	RootPath             string          `json:"rootPath"`
-	RemovedMode          string          `json:"removedMode"`
-	ClearedPaths         []string        `json:"clearedPaths,omitempty"`
-	ScannedProviderZids  []string        `json:"scannedProviderZids,omitempty"`
-	Job                  *models.ScanJob `json:"job,omitempty"`
+	SkillZid            string          `json:"skillZid"`
+	Provider            models.Provider `json:"provider"`
+	RootPath            string          `json:"rootPath"`
+	RemovedMode         string          `json:"removedMode"`
+	ClearedPaths        []string        `json:"clearedPaths,omitempty"`
+	ScannedProviderZids []string        `json:"scannedProviderZids,omitempty"`
+	Job                 *models.ScanJob `json:"job,omitempty"`
 }
 
 func NewCatalogService(db *gorm.DB) *CatalogService {
@@ -300,10 +301,6 @@ func (s *CatalogService) ListSkills(ctx context.Context, filters SkillListFilter
 		Joins("JOIN providers ON providers.id = skills.provider_id AND providers.deleted_at IS NULL").
 		Where("providers.enabled = ?", true)
 
-	if filters.Query != "" {
-		like := "%" + strings.ToLower(strings.TrimSpace(filters.Query)) + "%"
-		query = query.Where("LOWER(skills.name) LIKE ? OR LOWER(skills.summary) LIKE ?", like, like)
-	}
 	if filters.Provider != "" {
 		query = query.Where("providers.zid = ? OR providers.name = ?", filters.Provider, filters.Provider)
 	}
@@ -331,6 +328,9 @@ func (s *CatalogService) ListSkills(ctx context.Context, filters SkillListFilter
 	if err := query.Order(orderBy).Find(&skills).Error; err != nil {
 		return nil, err
 	}
+	if strings.TrimSpace(filters.Query) != "" {
+		skills = filterSkillsByQuery(skills, filters.Query)
+	}
 	if filters.Tag != "" {
 		filtered := make([]models.Skill, 0, len(skills))
 		for _, skill := range skills {
@@ -350,6 +350,136 @@ func (s *CatalogService) ListSkills(ctx context.Context, filters SkillListFilter
 		return groupSkillsForList(skills), nil
 	}
 	return skills, nil
+}
+
+// Fuzzy query matching ranks: a full-field exact match beats a prefix match,
+// which beats a substring match, which beats an in-order rune subsequence.
+const (
+	fuzzyRankNone        = 0
+	fuzzyRankSubsequence = 1
+	fuzzyRankSubstring   = 2
+	fuzzyRankPrefix      = 3
+	fuzzyRankExact       = 4
+)
+
+type skillQueryField struct {
+	value  string
+	weight int
+}
+
+// skillQueryFields lists the searchable text fields of a skill, weighted by
+// how descriptive the field is for identifying the skill.
+func skillQueryFields(skill models.Skill) []skillQueryField {
+	fields := []skillQueryField{
+		{value: skill.Name, weight: 8},
+		{value: skill.Slug, weight: 5},
+		{value: skill.DirectoryName, weight: 5},
+		{value: skill.Category, weight: 4},
+		{value: skill.Provider.Name, weight: 4},
+		{value: skill.Summary, weight: 2},
+	}
+	for _, tag := range skill.Tags {
+		fields = append(fields, skillQueryField{value: tag, weight: 6})
+	}
+	return fields
+}
+
+// filterSkillsByQuery keeps skills that fuzzy-match every whitespace-separated
+// token of queryText (AND semantics) and reorders the result by relevance,
+// best match first. The input order is kept as the tie-breaker, so the sort
+// chosen by the caller still ranks equally relevant matches.
+func filterSkillsByQuery(skills []models.Skill, queryText string) []models.Skill {
+	tokens := strings.Fields(strings.ToLower(strings.TrimSpace(queryText)))
+	if len(tokens) == 0 {
+		return skills
+	}
+	matched := make([]models.Skill, 0, len(skills))
+	scores := make([]int, 0, len(skills))
+	for _, skill := range skills {
+		score := skillQueryScore(tokens, skill)
+		if score > 0 {
+			matched = append(matched, skill)
+			scores = append(scores, score)
+		}
+	}
+	order := make([]int, len(matched))
+	for index := range order {
+		order[index] = index
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		return scores[order[i]] > scores[order[j]]
+	})
+	sorted := make([]models.Skill, 0, len(matched))
+	for _, index := range order {
+		sorted = append(sorted, matched[index])
+	}
+	return sorted
+}
+
+// skillQueryScore sums the best weighted match score (rank * field weight)
+// per token. Every token must match at least one field; a single unmatched
+// token rejects the skill.
+func skillQueryScore(tokens []string, skill models.Skill) int {
+	fields := skillQueryFields(skill)
+	total := 0
+	for _, token := range tokens {
+		best := 0
+		for _, field := range fields {
+			if field.value == "" {
+				continue
+			}
+			if rank := fuzzyMatchRank(token, field.value); rank > fuzzyRankNone {
+				if score := rank * field.weight; score > best {
+					best = score
+				}
+			}
+		}
+		if best == 0 {
+			return 0
+		}
+		total += best
+	}
+	return total
+}
+
+// fuzzyMatchRank reports how well token matches value, comparing
+// case-insensitively.
+func fuzzyMatchRank(token, value string) int {
+	if token == "" || value == "" {
+		return fuzzyRankNone
+	}
+	token = strings.ToLower(token)
+	target := strings.ToLower(value)
+	switch {
+	case target == token:
+		return fuzzyRankExact
+	case strings.HasPrefix(target, token):
+		return fuzzyRankPrefix
+	case strings.Contains(target, token):
+		return fuzzyRankSubstring
+	case isRuneSubsequence(token, target):
+		return fuzzyRankSubsequence
+	}
+	return fuzzyRankNone
+}
+
+// isRuneSubsequence reports whether every rune of needle appears in haystack
+// in the same order (a fuzzy "jbr" matches "jira-browser").
+func isRuneSubsequence(needle, haystack string) bool {
+	needleRunes := []rune(needle)
+	if len(needleRunes) == 0 {
+		return true
+	}
+	index := 0
+	for _, r := range haystack {
+		if r == needleRunes[index] {
+			index++
+			if index == len(needleRunes) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (s *CatalogService) GetSkill(ctx context.Context, zid string) (*models.Skill, error) {
@@ -408,6 +538,60 @@ func (s *CatalogService) GetSkillFileContent(ctx context.Context, zid, relativeP
 		return nil, ErrBinaryFile
 	}
 	return &FileContent{Path: relativePath, Content: string(data)}, nil
+}
+
+type SkillFileDetail struct {
+	Path       string     `json:"path"`
+	IsDir      bool       `json:"isDir"`
+	Size       int64      `json:"size,omitempty"`
+	ModifiedAt *time.Time `json:"modifiedAt,omitempty"`
+	Binary     bool       `json:"binary,omitempty"`
+	Content    string     `json:"content,omitempty"`
+	Children   []FileNode `json:"children,omitempty"`
+}
+
+// GetSkillFileDetail returns metadata and, when displayable, the content of a
+// single file inside a skill directory. Directories come with their child
+// listing (hidden files excluded, same as the file tree); binary or
+// non-UTF-8 files set Binary instead of Content.
+func (s *CatalogService) GetSkillFileDetail(ctx context.Context, zid, relativePath string) (*SkillFileDetail, error) {
+	skill, err := s.GetSkill(ctx, zid)
+	if err != nil {
+		return nil, err
+	}
+	absPath, err := safeJoin(skill.RootPath, relativePath)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid file path", ErrInvalidInput)
+	}
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return nil, err
+	}
+	modifiedAt := info.ModTime()
+	detail := &SkillFileDetail{
+		Path:       filepath.ToSlash(filepath.Clean(relativePath)),
+		IsDir:      info.IsDir(),
+		ModifiedAt: &modifiedAt,
+	}
+	if info.IsDir() {
+		children, err := listFileNodes(skill.RootPath, absPath)
+		if err != nil {
+			return nil, err
+		}
+		detail.Children = children
+		return detail, nil
+	}
+	detail.Size = info.Size()
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		return nil, err
+	}
+	if !utf8.Valid(data) || strings.ContainsRune(string(data), rune(0)) {
+		detail.Binary = true
+		return detail, nil
+	}
+	detail.Content = string(data)
+	return detail, nil
 }
 
 func (s *CatalogService) AttachSkill(ctx context.Context, skillZid string, input SkillAttachInput) (*SkillAttachResult, error) {
@@ -1682,6 +1866,7 @@ func listFileNodes(rootPath, currentPath string) ([]FileNode, error) {
 			Name:       entry.Name(),
 			Path:       filepath.ToSlash(relPath),
 			IsDir:      entry.IsDir(),
+			Mode:       info.Mode(),
 			ModifiedAt: &modifiedAt,
 		}
 		if entry.IsDir() {

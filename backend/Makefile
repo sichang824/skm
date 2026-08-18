@@ -3,6 +3,10 @@
 APP_NAME=backend-go
 PORT?=8080
 
+# Keep the backend build self-contained when a parent directory carries an
+# unrelated go.work (override with GOWORK= in the environment).
+export GOWORK ?= off
+
 help:
 	@echo "Available targets:"
 	@echo "  make run      - run server locally"

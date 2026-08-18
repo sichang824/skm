@@ -46,6 +46,9 @@
 - `GET /api/skills/:zid`
 - `GET /api/skills/:zid/files`
 - `GET /api/skills/:zid/file-content?path=SKILL.md`
+- `GET /api/skills/:zid/commands`（可执行命令面板；`skill.commands.length > 0` 时展示入口）
+- `POST /api/skills/:zid/exec`（执行命令；confirm 门禁未放行 → 409，预检失败 → 422，命令本身失败是 200 + exitCode）
+- `GET /api/execs?skill=<zid>&limit=10`（执行历史；HASH 可复制为 `--pin` 值）
 
 ### Provider 页
 
@@ -140,6 +143,59 @@
   }
 }
 ```
+
+### Skill Exec（`POST /api/skills/:zid/exec`）
+
+请求体（`SkillExecPayload`）：
+
+```json
+{
+  "command": "transcribe",
+  "args": ["media/meeting.m4a"],
+  "input": "{\"k\":\"v\"}",
+  "env": ["API_KEY=xxx"],
+  "assumeYes": false,
+  "timeoutSeconds": 0,
+  "isolate": false,
+  "pin": "3fa2c1d8",
+  "dryRun": false
+}
+```
+
+- `pin`（可选）：sourceHash 前缀（8–64 hex），按历史版本执行，只在缓存副本里跑；留空跑最新
+- 响应为 `SkillExecResult`：`ok/exitCode/timedOut/aborted/workDir/durationMs/stdout/stderr`，另含 `deps`（托管安装：node/python 命令行、ran/skipped、exitCode/durationMs）、`setup`（同形状）、`plan`（dry-run 展示用：`pin/deps/depsSkipped/setupSkipped/commandLine`）
+- HTTP 语义：预检失败（未知命令、缺 env、confirm 409、input/pin 无效 422）走错误码；命令本身失败是 200 + `exitCode`
+
+### ExecRecord（`GET /api/execs`）
+
+执行审计记录（新→旧），`skill` 过滤、`limit` 上限 200：
+
+```json
+{
+  "zid": "EXEC000000000007",
+  "skillZid": "SKIL000000000124",
+  "skillName": "tingwu-transcribe",
+  "command": "transcribe",
+  "trigger": "http",
+  "who": "ann",
+  "workDir": "/path/to/skills/tingwu-transcribe",
+  "mode": "source",
+  "pin": "",
+  "sourceHash": "3fa2c1d8…（64 hex，可用作 --pin）",
+  "status": "completed",
+  "exitCode": 0,
+  "timedOut": false,
+  "reason": "",
+  "args": ["media/meeting.m4a"],
+  "envKeys": ["TINGWU_API_KEY"],
+  "inputVia": "",
+  "durationMs": 1234,
+  "startedAt": "2026-08-19T02:42:01Z"
+}
+```
+
+- `status`：`completed | failed | timeout | setup_failed | deps_failed | rejected`；`rejected` 行带 `reason`
+- 机密面：只存 env 键名，不存值；input 不落库
 
 ## 扫描规则
 

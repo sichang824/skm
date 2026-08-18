@@ -1,6 +1,10 @@
 {
   "directories": [
-    "/Users/ann/.agents/skills/skm"
+    "/Users/ann/.agents/skills/skm",
+    "/Users/ann/.claude/skills/skm",
+    "/Users/ann/.codex/skills/skm",
+    "/Users/ann/.cursor/skills/skm",
+    "/Users/ann/.workbuddy/skills/skm"
   ],
   "include": [
     "SKILL.md"

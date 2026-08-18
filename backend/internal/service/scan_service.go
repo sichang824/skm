@@ -39,6 +39,7 @@ type discoveredSkill struct {
 	RawMarkdown    string
 	BodyMarkdown   string
 	Frontmatter    map[string]any
+	Commands       []models.SkillCommand
 	IssueCodes     []string
 }
 
@@ -189,6 +190,7 @@ func (s *ScanService) persistScan(ctx context.Context, provider *models.Provider
 			record.RawMarkdown = discovered.RawMarkdown
 			record.BodyMarkdown = discovered.BodyMarkdown
 			record.Frontmatter = discovered.Frontmatter
+			record.Commands = discovered.Commands
 			record.IssueCodes = discovered.IssueCodes
 			record.DeletedAt = gorm.DeletedAt{}
 			if slices.Contains(discovered.IssueCodes, "frontmatter_parse_failed") || slices.Contains(discovered.IssueCodes, "missing_name") || slices.Contains(discovered.IssueCodes, "name_directory_mismatch") {
@@ -339,6 +341,32 @@ func discoverProvider(provider *models.Provider) ([]discoveredSkill, []discovere
 			})
 		}
 
+		var commands []models.SkillCommand
+		manifest, manifestErr := LoadManifest(dirPath)
+		switch {
+		case errors.Is(manifestErr, ErrManifestNotFound):
+			// No package.json: the skill simply declares no executable commands.
+		case manifestErr != nil:
+			issueCodes = append(issueCodes, "manifest_invalid_json")
+			issues = append(issues, discoveredIssue{
+				RootPath:     dirPath,
+				RelativePath: ManifestFileName,
+				Code:         "manifest_invalid_json",
+				Severity:     "error",
+				Message:      manifestErr.Error(),
+				SkillRoot:    dirPath,
+			})
+		case manifest != nil:
+			commands = manifest.Commands
+			manifestIssues, manifestCodes := manifest.Validate(dirPath, name)
+			issues = append(issues, manifestIssues...)
+			for _, code := range manifestCodes {
+				if !slices.Contains(issueCodes, code) {
+					issueCodes = append(issueCodes, code)
+				}
+			}
+		}
+
 		info, err := os.Stat(skillMdPath)
 		if err != nil {
 			return nil, nil, wrapDiscoveredSkillError(discoveredSkill{RootPath: dirPath, SkillMdPath: skillMdPath}, "stat skill document", err)
@@ -359,6 +387,7 @@ func discoverProvider(provider *models.Provider) ([]discoveredSkill, []discovere
 			RawMarkdown:    string(content),
 			BodyMarkdown:   parsed.Body,
 			Frontmatter:    parsed.Frontmatter,
+			Commands:       commands,
 			IssueCodes:     issueCodes,
 		})
 	}
@@ -525,7 +554,21 @@ func skillChanged(existing models.Skill, discovered discoveredSkill) bool {
 		existing.Status != discovered.Status ||
 		existing.ContentHash != discovered.ContentHash ||
 		!slices.Equal(existing.Tags, discovered.Tags) ||
-		!slices.Equal(existing.IssueCodes, discovered.IssueCodes)
+		!slices.Equal(existing.IssueCodes, discovered.IssueCodes) ||
+		!skillCommandsEqual(existing.Commands, discovered.Commands)
+}
+
+func skillCommandsEqual(existing, discovered []models.SkillCommand) bool {
+	return slices.EqualFunc(existing, discovered, func(a, b models.SkillCommand) bool {
+		return a.Name == b.Name &&
+			a.Description == b.Description &&
+			a.Line == b.Line &&
+			a.Confirm == b.Confirm &&
+			a.TimeoutSeconds == b.TimeoutSeconds &&
+			a.InputVia == b.InputVia &&
+			a.HasInputSchema == b.HasInputSchema &&
+			slices.Equal(a.Env, b.Env)
+	})
 }
 
 func isIgnoredName(name string) bool {

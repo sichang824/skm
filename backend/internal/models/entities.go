@@ -29,6 +29,7 @@ var Entities = []EntityMeta{
 	{Table: "skills", Prefix: "SKIL", Model: &Skill{}, AutoMigrate: true},
 	{Table: "scan_jobs", Prefix: "SCAN", Model: &ScanJob{}, AutoMigrate: true},
 	{Table: "scan_issues", Prefix: "SISS", Model: &ScanIssue{}, AutoMigrate: true},
+	{Table: "exec_records", Prefix: "EXEC", Model: &ExecRecord{}, AutoMigrate: true},
 }
 
 // initZID initializes the global ID codec
