@@ -352,14 +352,13 @@ func (s *CatalogService) ListSkills(ctx context.Context, filters SkillListFilter
 	return skills, nil
 }
 
-// Fuzzy query matching ranks: a full-field exact match beats a prefix match,
-// which beats a substring match, which beats an in-order rune subsequence.
+// Contiguous query matching ranks: a full-field exact match beats a prefix
+// match, which beats a substring match. Letter-order (subsequence) is not a hit.
 const (
-	fuzzyRankNone        = 0
-	fuzzyRankSubsequence = 1
-	fuzzyRankSubstring   = 2
-	fuzzyRankPrefix      = 3
-	fuzzyRankExact       = 4
+	fuzzyRankNone      = 0
+	fuzzyRankSubstring = 2
+	fuzzyRankPrefix    = 3
+	fuzzyRankExact     = 4
 )
 
 type skillQueryField struct {
@@ -374,8 +373,6 @@ func skillQueryFields(skill models.Skill) []skillQueryField {
 		{value: skill.Name, weight: 8},
 		{value: skill.Slug, weight: 5},
 		{value: skill.DirectoryName, weight: 5},
-		{value: skill.Category, weight: 4},
-		{value: skill.Provider.Name, weight: 4},
 		{value: skill.Summary, weight: 2},
 	}
 	for _, tag := range skill.Tags {
@@ -384,8 +381,8 @@ func skillQueryFields(skill models.Skill) []skillQueryField {
 	return fields
 }
 
-// filterSkillsByQuery keeps skills that fuzzy-match every whitespace-separated
-// token of queryText (AND semantics) and reorders the result by relevance,
+// filterSkillsByQuery keeps skills that contain every whitespace-separated
+// token of queryText as contiguous text (AND semantics) and reorders hits by relevance,
 // best match first. The input order is kept as the tie-breaker, so the sort
 // chosen by the caller still ranks equally relevant matches.
 func filterSkillsByQuery(skills []models.Skill, queryText string) []models.Skill {
@@ -457,29 +454,8 @@ func fuzzyMatchRank(token, value string) int {
 		return fuzzyRankPrefix
 	case strings.Contains(target, token):
 		return fuzzyRankSubstring
-	case isRuneSubsequence(token, target):
-		return fuzzyRankSubsequence
 	}
 	return fuzzyRankNone
-}
-
-// isRuneSubsequence reports whether every rune of needle appears in haystack
-// in the same order (a fuzzy "jbr" matches "jira-browser").
-func isRuneSubsequence(needle, haystack string) bool {
-	needleRunes := []rune(needle)
-	if len(needleRunes) == 0 {
-		return true
-	}
-	index := 0
-	for _, r := range haystack {
-		if r == needleRunes[index] {
-			index++
-			if index == len(needleRunes) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func (s *CatalogService) GetSkill(ctx context.Context, zid string) (*models.Skill, error) {

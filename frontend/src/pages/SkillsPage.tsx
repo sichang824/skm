@@ -39,12 +39,12 @@ export function SkillsPage() {
 
   const deferredQuery = useDeferredValue(search);
 
-  async function loadSkills() {
+  async function loadSkills(searchText = search) {
     setLoading(true);
     setError("");
     try {
       const [skillData, providerData] = await Promise.all([
-        api.getSkills({ sort: "lastScanned", grouped: true }),
+        api.getSkills(skillListQuery(searchText)),
         api.getProviders(),
       ]);
       setSkills(skillData);
@@ -83,7 +83,7 @@ export function SkillsPage() {
       setError("");
       try {
         const [skillData, providerData] = await Promise.all([
-          api.getSkills({ sort: "lastScanned", grouped: true }),
+          api.getSkills(skillListQuery(deferredQuery)),
           api.getProviders(),
         ]);
         if (!active) {
@@ -107,7 +107,7 @@ export function SkillsPage() {
     return () => {
       active = false;
     };
-  }, [refreshKey]);
+  }, [refreshKey, deferredQuery]);
 
   useEffect(() => {
     if (selectedProviderZid && !providers.some((item) => item.zid === selectedProviderZid)) {
@@ -120,8 +120,8 @@ export function SkillsPage() {
   const filteredSkillGroups = useMemo(() => {
     return skills.reduce<SkillGroup[]>((result, skill) => {
       const relatedSkills = skill.relatedSkills ?? [];
-      const parentMatches = matchesSkillFilters(skill, deferredQuery, selectedProviderZid, status);
-      const matchedChildren = relatedSkills.filter((child) => matchesSkillFilters(child, deferredQuery, selectedProviderZid, status));
+      const parentMatches = matchesSkillFilters(skill, selectedProviderZid, status);
+      const matchedChildren = relatedSkills.filter((child) => matchesSkillFilters(child, selectedProviderZid, status));
       if (!parentMatches && matchedChildren.length === 0) {
         return result;
       }
@@ -426,7 +426,7 @@ export function SkillsPage() {
                 })}
                 {!loading && filteredSkillGroups.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-12 text-center text-slate-500">没有找到匹配的 Skills</td>
+                    <td colSpan={5} className="px-4 py-12 text-center text-slate-500">{deferredQuery.trim() ? "没有技能包含这些关键字" : "没有找到匹配的 Skills"}</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -556,16 +556,20 @@ function renderSkillStatus(skill: Skill) {
   return <span className="inline-flex items-center rounded-md border border-green-200 bg-green-50 px-2 py-1 text-xs font-medium text-green-700">Active</span>;
 }
 
+function skillListQuery(searchText: string) {
+  const q = searchText.trim();
+  return {
+    sort: "lastScanned" as const,
+    grouped: true,
+    ...(q ? { q } : {}),
+  };
+}
+
 function flattenSkills(skills: Skill[]): Skill[] {
   return skills.flatMap((skill) => [skill, ...flattenSkills(skill.relatedSkills ?? [])]);
 }
 
-function matchesSkillFilters(skill: Skill, query: string, providerZid: string, status: string) {
-  const matchesSearch = query.trim() === ""
-    ? true
-    : [skill.name, skill.summary, skill.provider?.name, skill.category, skill.directoryName]
-      .filter(Boolean)
-      .some((value) => String(value).toLowerCase().includes(query.toLowerCase()));
+function matchesSkillFilters(skill: Skill, providerZid: string, status: string) {
   const matchesProvider = providerZid ? skill.provider?.zid === providerZid : true;
   const matchesStatus = status === ""
     ? true
@@ -574,5 +578,5 @@ function matchesSkillFilters(skill: Skill, query: string, providerZid: string, s
       : status === "Conflict"
         ? skill.isConflict
         : skill.status === "invalid";
-  return matchesSearch && matchesProvider && matchesStatus;
+  return matchesProvider && matchesStatus;
 }

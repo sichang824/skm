@@ -1,27 +1,43 @@
 ---
 name: skm
 description: "Use when working with the local skm CLI to manage skill providers, catalog scans, issues, skill copies, on-demand skill content retrieval (skills get), and package.json command execution (skills exec). Triggers: skm, providers, scan, skills link, skills move, skills sync, skills get, skills exec, execs, gen-operations, package.json commands, issues, dashboard."
-allowed-tools: Bash(skm dashboard:*), Bash(skm skills --digest:*)
+allowed-tools: Bash(skm dashboard:*), Bash(skm skills -q:*), Bash(skm skills --query:*), Bash(skm skills --tag:*)
 ---
 
 # Skill: skm CLI
 
 用 `skm` CLI 管理 skill provider、catalog、link/sync 副本与 issues。**Provider 是动态的**——运行时向 SKM 查 live catalog，不要背 ZID、路径或数量。
 
-## 实时 Catalog（自动注入，勿重复查询）
+## 发现 skill：搜索是最高优先级
 
-以下两块内容在 skill 加载时由动态上下文注入实时生成（占位命令的输出被原位替换），**直接作为当前事实使用**——不要再跑 `skm skills` / `skm providers` 重复查询；仅当结果可疑或用户明确说刚改过数据时才 `scan` 后重取。
+**找 skill 只走定向搜索，不要 dump 全库。** 需要某个 skill 时立刻 `-q` / `--tag`，命中后再 `skills get` / `skills exec`。禁止用 `skm skills --digest` 当目录、当「先看一眼有什么」、或当 skill 加载时的默认注入——digest 会把整个 catalog 塞进上下文，当前库一百多行，绝大多数任务用不到。
+
+```bash
+skm skills -q <具体名字或独特片段>    # 主路径
+skm skills --tag <短别名>            # 短 alias 更准（如 pdl、tdd）
+skm skills get <zid>                 # 取正文；不要先读完列表再猜
+```
+
+预检只注入 dashboard（体积小）。**不要**注入 digest，也不要无 query 跑 `skm skills` 全表。
 
 !`skm dashboard`
 
-!`skm skills --digest`
+dashboard 的 `Database:` 不是 `~/.skm/app.db` → 连到了 dev 库（见预检）。列表可疑或用户刚改过磁盘时才 `scan`，然后重新搜索。
 
-digest 每行一个 skill（TSV）：`NAME→ZID→PROVIDER→STATUS→COMMANDS→SUMMARY`，**每个名字只有一行**：同名条目（多版本目录、源+副本）折叠为 `×N`，权威行按 源目录 > ready > 最新版本 选取；冲突败者（isEffective=false）不列出。STATUS 空 = ready；`(copy)` = 权威行本身是副本（源不在库中，少见）；命令带 `*` = 需要 `--yes`，超过 8 个折叠为 `…+N`；SUMMARY 截断至 44 字符；折叠/省略计数都在头部。头部 `db:` 不是 `~/.skm/app.db` → 连到了 dev 库（见预检）。
+### 把搜索写准
+
+- 用完整或接近完整的 name / slug：`product-development` 远好于 `pdl`。
+- 短别名（`pdl`、`tdd`）只要技能写过（tag / name / summary）就能用 `-q`；`--tag` 仍是精确 tag 过滤。
+- 多词 AND。第二个词也要独特；`product lifecycle` 仍然偏松。
+- 结果很多时：收紧 query，或加 `--provider` / `--tag` / `--status`。只 `get` 排名最前且名称对得上的那条。**不要改去跑 digest。**
+- 只有用户明确要全库清单，或搜索无法表达「随便看看有什么」时，才允许跑一次 `--digest`。跑完不要复述全文，只引用用到的行。
+
+digest 格式（仅在上述例外需要读时）：TSV `NAME→ZID→PROVIDER→STATUS→COMMANDS→SUMMARY`；同名折成 `×N`；权威行 源 > ready > 最新；冲突败者不列；STATUS 空 = ready；命令带 `*` = 需 `--yes`。
 
 ## 核心原则
 
 1. **先理解意图，再动手** — 未弄清用户目标前，不要跑写操作。
-2. **先查后改** — `dashboard` / `providers` / `skills` / `issues` 只读优先。
+2. **先查后改** — `dashboard` / `providers` / **定向** `skills -q` / `issues` 只读优先；全库 digest 不是默认查询。
 3. **动态解析 provider** — 用 `skm providers --json` 匹配；歧义时必须让用户选，不能默认。
 4. **不写死 catalog** — skill 里不放 provider 清单、ZID 表、skill 数量。
 5. **内容按需取** — 消费端默认只持 `SKILL.md` 副本做发现，正文/脚本/执行一律走 `skills get` / `skills exec`，不要再整包 link 副本。
@@ -34,7 +50,7 @@ digest 每行一个 skill（TSV）：`NAME→ZID→PROVIDER→STATUS→COMMANDS�
 |------|---------|---------|
 | 取用内容 / 执行 | 「看这个 skill 的内容」「读它的脚本」「跑 skill 里的 xx 命令」 | [get 取用](#直接取用-skill-内容get) / exec |
 | 发布 / 附着 | 「link 到全局」「发到 Cursor」「挂到 workspace」 | [Publish 流程](#publish-流程) |
-| 查询 / 核对 | 「有哪些 skill」「provider 对不对」 | 预检 + `providers` / `skills` |
+| 查询 / 核对 | 「有哪些 skill」「找到 xx」「provider 对不对」 | 预检 + **定向** `skills -q` / `--tag`；禁止用 digest 代替搜索 |
 | 刷新 catalog | 「扫一下」「列表没更新」 | `scan` |
 | 修 `.to` / 副本 | 「同步副本」「只有 .from」 | `.to` 规则 + `sync-copies` |
 | 排障 | 「CLI 没数据」「和 App 不一致」 | [预检](#预检cli-与-app-一致) + issues |
@@ -102,10 +118,10 @@ skm skills get <zid> <path>     # 读单个文件：文本直接打印内容；�
 
 ```bash
 skm scan provider <source-provider-zid>
-skm skills --provider "<source-name>" -q <skill-name>   # -q/--query 模糊搜索（多词 AND，按相关度排序），可与 --category/--tag/--status/--conflict/--sort 组合
+skm skills --provider "<source-name>" -q <skill-name>   # 定向搜索；短别名改 --tag
 ```
 
-`-q` 匹配规则：完全匹配 > 前缀 > 子串 > 子序列（`brauth` 能命中 `browserauth`），大小写不敏感，中文可用；字段加权 name > tags > slug/目录名 > category/provider > summary。
+`-q`：每个关键字必须在技能自己写过的字段里连续出现（name、slug、目录名、tags、summary），大小写不敏感，多词 AND。完全匹配 > 前缀 > 子串。不搜 provider 名和正文，不修打错，不做字母跳序。可与 `--category/--tag/--status/--conflict/--sort` 组合。
 
 **4. Link + 同步**
 
@@ -182,7 +198,7 @@ skm skills gen-operations <zid> [--check] | --all      # 从 package.json 重生
 
 ```bash
 skm version | dashboard | providers [--json] | skills [--json] | issues | scan all | scan provider <zid>
-skm skills [-q text] [--provider zid-or-name] [--category v] [--tag v] [--status v] [--sort name|provider|status|lastScanned] [--conflict true|false] [--digest]
+skm skills [-q text] [--provider zid-or-name] [--category v] [--tag v] [--status v] [--sort name|provider|status|lastScanned] [--conflict true|false]  # --digest 仅全库概览，不默认用
 skm skills get <zid> [path] [-f/--files] [--commands] | skills link <zid> --to <prov-zid> | skills sync <zid> | skills sync-copies <zid>
 skm skills exec <zid> <command> [--input json|@file|-] [--env K=V] [--yes] [--timeout sec] [--isolate] [--pin hash] [--dry-run] [--json] [-- args...]
 skm skills exec <zid> --setup [--isolate] [--force] [--pin hash] | skills execs [--skill <zid>] [--limit N] | skills gen-operations <zid>|--all [--check]

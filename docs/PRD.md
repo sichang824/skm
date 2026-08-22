@@ -247,6 +247,8 @@ Provider 在产品中是可配置对象，而不是硬编码枚举。系统可�
 
 #### 9.3.2 搜索与筛选
 
+> Stale for inclusion rules. Canonical contract: `docs/pdl/pdl-20260822-01-catalog-search-precision/`.
+
 系统应支持：
 
 - 按 skill 名称搜索

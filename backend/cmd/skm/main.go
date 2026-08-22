@@ -382,7 +382,7 @@ func runSkills(args []string, stdout, stderr io.Writer) int {
 func runSkillsList(args []string, stdout, stderr io.Writer) int {
 	fs := newFlagSet("skills", stderr)
 	jsonOutput := fs.Bool("json", false, "output JSON")
-	query := fs.String("query", "", "fuzzy search skills by name, slug, tags, category, provider, or summary")
+	query := fs.String("query", "", "search skills that contain each keyword in name, slug, directory, tags, or summary")
 	queryShort := fs.String("q", "", "alias for --query")
 	provider := fs.String("provider", "", "provider zid or name")
 	category := fs.String("category", "", "filter by category")
@@ -2055,7 +2055,7 @@ func printSkillsUsage(out io.Writer) {
 	fmt.Fprintln(out, "  to        Create or update .to metadata in the current skill directory")
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Flags:")
-	fmt.Fprintln(out, "  -q, --query string   fuzzy search skills by name, slug, tags, category, provider, or summary")
+	fmt.Fprintln(out, "  -q, --query string   skills that contain each keyword in name, slug, directory, tags, or summary")
 	fmt.Fprintln(out, "                       multiple space-separated words must all match; results are ranked by relevance")
 	fmt.Fprintln(out, "                       combines with --provider, --category, --tag, --status, and --conflict")
 	fmt.Fprintln(out, "      --digest         compact one-line-per-skill digest (NAME/ZID/PROVIDER/STATUS/COMMANDS/SUMMARY)")

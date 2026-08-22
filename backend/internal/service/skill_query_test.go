@@ -18,8 +18,7 @@ func TestFuzzyMatchRank(t *testing.T) {
 		{"exact case-insensitive", "Jira", "jira", fuzzyRankExact},
 		{"prefix", "jira", "jira-sync", fuzzyRankPrefix},
 		{"substring", "jira", "my-jira-tool", fuzzyRankSubstring},
-		{"subsequence", "jbr", "jira-browser", fuzzyRankSubsequence},
-		{"subsequence needs order", "bj", "jira-browser", fuzzyRankNone},
+		{"letter-order is not a hit", "jbr", "jira-browser", fuzzyRankNone},
 		{"no match", "jira", "github", fuzzyRankNone},
 		{"chinese prefix", "报销", "报销助手", fuzzyRankPrefix},
 		{"chinese substring", "助手", "报销助手", fuzzyRankSubstring},
@@ -32,26 +31,6 @@ func TestFuzzyMatchRank(t *testing.T) {
 				t.Fatalf("fuzzyMatchRank(%q, %q) = %d, want %d", tc.token, tc.value, got, tc.want)
 			}
 		})
-	}
-}
-
-func TestIsRuneSubsequence(t *testing.T) {
-	cases := []struct {
-		needle   string
-		haystack string
-		want     bool
-	}{
-		{"jbr", "jira-browser", true},
-		{"jira", "job-iteration-report-app", true},
-		{"bj", "jira-browser", false},
-		{"报销", "报助手销", true},
-		{"报销", "销报", false},
-		{"", "anything", true},
-	}
-	for _, tc := range cases {
-		if got := isRuneSubsequence(tc.needle, tc.haystack); got != tc.want {
-			t.Errorf("isRuneSubsequence(%q, %q) = %t, want %t", tc.needle, tc.haystack, got, tc.want)
-		}
 	}
 }
 
@@ -74,7 +53,7 @@ func TestSkillQueryScore(t *testing.T) {
 		{"single exact-ish token", []string{"jira-sync"}, true},
 		{"token in summary", []string{"issues"}, true},
 		{"token in tag", []string{"tracking"}, true},
-		{"token in provider name", []string{"workspace"}, true},
+		{"provider name is not a written field", []string{"workspace"}, false},
 		{"multi token AND", []string{"jira", "sync"}, true},
 		{"one unmatched token rejects", []string{"jira", "github"}, false},
 		{"no match", []string{"kubernetes"}, false},
@@ -103,7 +82,7 @@ func TestSkillQueryScoreRanksNameMatchesHighest(t *testing.T) {
 	}
 }
 
-func TestListSkillsFuzzyQueryFiltersAndRanks(t *testing.T) {
+func TestListSkillsQueryKeepsOnlyWrittenContiguousHits(t *testing.T) {
 	db := openCatalogTestDB(t)
 	service := NewCatalogService(db)
 	ctx := context.Background()
@@ -126,7 +105,7 @@ func TestListSkillsFuzzyQueryFiltersAndRanks(t *testing.T) {
 	for _, skill := range skills {
 		names = append(names, skill.Name)
 	}
-	want := []string{"jira", "jira-sync", "my-jira-helper", "job-iteration-report-app"}
+	want := []string{"jira", "jira-sync", "my-jira-helper"}
 	if len(names) != len(want) {
 		t.Fatalf("expected %d matches, got %d: %v", len(want), len(names), names)
 	}
@@ -134,6 +113,108 @@ func TestListSkillsFuzzyQueryFiltersAndRanks(t *testing.T) {
 		if names[index] != name {
 			t.Fatalf("expected order %v, got %v", want, names)
 		}
+	}
+}
+
+func TestListSkillsQueryRejectsLetterOrderAndProviderName(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	baseDir := t.TempDir()
+	provider := createTestProvider(t, db, "Auth Platform", filepath.Join(baseDir, "provider"))
+
+	createTestSkill(t, db, provider, filepath.Join(baseDir, "provider", "jira-browser"), "jira-browser")
+	providerOnly := createTestSkill(t, db, provider, filepath.Join(baseDir, "provider", "notes"), "notes")
+	providerOnly.Summary = "internal notes"
+	if err := db.Save(providerOnly).Error; err != nil {
+		t.Fatalf("update summary: %v", err)
+	}
+
+	letterOrder, err := service.ListSkills(ctx, SkillListFilters{Query: "jbr"})
+	if err != nil {
+		t.Fatalf("ListSkills jbr: %v", err)
+	}
+	if len(letterOrder) != 0 {
+		t.Fatalf("expected no letter-order hits, got %d", len(letterOrder))
+	}
+
+	byProviderName, err := service.ListSkills(ctx, SkillListFilters{Query: "platform"})
+	if err != nil {
+		t.Fatalf("ListSkills provider name: %v", err)
+	}
+	if len(byProviderName) != 0 {
+		t.Fatalf("expected provider name not to match, got %d", len(byProviderName))
+	}
+
+	unknown, err := service.ListSkills(ctx, SkillListFilters{Query: "zzzz-not-a-skill"})
+	if err != nil {
+		t.Fatalf("ListSkills unknown: %v", err)
+	}
+	if len(unknown) != 0 {
+		t.Fatalf("expected empty unknown query, got %d", len(unknown))
+	}
+}
+
+func TestListSkillsQueryMatchesTagsAliasesAndAbbreviations(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	baseDir := t.TempDir()
+	provider := createTestProvider(t, db, "Workspace Skills", filepath.Join(baseDir, "provider"))
+
+	pdl := createTestSkill(t, db, provider, filepath.Join(baseDir, "provider", "product-development-lifecycle"), "product-development-lifecycle")
+	pdl.Tags = []string{"pdl"}
+	if err := db.Save(pdl).Error; err != nil {
+		t.Fatalf("update tags: %v", err)
+	}
+
+	guidelines := createTestSkill(t, db, provider, filepath.Join(baseDir, "provider", "karpathy-guidelines"), "karpathy-guidelines")
+	guidelines.Summary = "style guide for agents"
+	if err := db.Save(guidelines).Error; err != nil {
+		t.Fatalf("update guidelines: %v", err)
+	}
+
+	createTestSkill(t, db, provider, filepath.Join(baseDir, "provider", "browserauth"), "browserauth")
+	authTagged := createTestSkill(t, db, provider, filepath.Join(baseDir, "provider", "gate"), "gate")
+	authTagged.Tags = []string{"auth"}
+	if err := db.Save(authTagged).Error; err != nil {
+		t.Fatalf("update auth tag: %v", err)
+	}
+	named := createTestSkill(t, db, provider, filepath.Join(baseDir, "provider", "login"), "login")
+	named.Summary = "authentication helpers"
+	if err := db.Save(named).Error; err != nil {
+		t.Fatalf("update auth summary: %v", err)
+	}
+
+	pdlHits, err := service.ListSkills(ctx, SkillListFilters{Query: "PDL"})
+	if err != nil {
+		t.Fatalf("ListSkills PDL: %v", err)
+	}
+	if len(pdlHits) != 1 || pdlHits[0].Name != "product-development-lifecycle" {
+		names := make([]string, 0, len(pdlHits))
+		for _, skill := range pdlHits {
+			names = append(names, skill.Name)
+		}
+		t.Fatalf("expected only product-development-lifecycle, got %v", names)
+	}
+
+	authHits, err := service.ListSkills(ctx, SkillListFilters{Query: "auth", Sort: "name"})
+	if err != nil {
+		t.Fatalf("ListSkills auth: %v", err)
+	}
+	got := map[string]bool{}
+	for _, skill := range authHits {
+		got[skill.Name] = true
+	}
+	for _, name := range []string{"browserauth", "gate", "login"} {
+		if !got[name] {
+			t.Fatalf("expected %s among auth hits, got %v", name, got)
+		}
+	}
+	if got["karpathy-guidelines"] || got["product-development-lifecycle"] {
+		t.Fatalf("unexpected auth hits: %v", got)
 	}
 }
 
@@ -170,7 +251,6 @@ func TestListSkillsFuzzyQueryMatchesTagsAndChineseSummary(t *testing.T) {
 		}
 		t.Fatalf("expected 2 matches, got %v", names)
 	}
-	// Tag matches are weighted higher than summary matches.
 	if skills[0].Name != "expense-flow" || skills[1].Name != "reimbursement" {
 		t.Fatalf("expected [expense-flow reimbursement], got [%s %s]", skills[0].Name, skills[1].Name)
 	}
@@ -215,5 +295,45 @@ func TestListSkillsQueryCombinesWithProviderAndStatusFilters(t *testing.T) {
 	}
 	if len(noMatch) != 0 {
 		t.Fatalf("expected no skill to match both tokens, got %d", len(noMatch))
+	}
+
+	andHits, err := service.ListSkills(ctx, SkillListFilters{Query: "product development"})
+	if err != nil {
+		t.Fatalf("ListSkills AND empty: %v", err)
+	}
+	if len(andHits) != 0 {
+		t.Fatalf("expected no AND hits in this fixture, got %d", len(andHits))
+	}
+}
+
+func TestListSkillsQueryRequiresEveryKeyword(t *testing.T) {
+	db := openCatalogTestDB(t)
+	service := NewCatalogService(db)
+	ctx := context.Background()
+
+	baseDir := t.TempDir()
+	provider := createTestProvider(t, db, "Workspace Skills", filepath.Join(baseDir, "provider"))
+
+	both := createTestSkill(t, db, provider, filepath.Join(baseDir, "provider", "product-development-lifecycle"), "product-development-lifecycle")
+	both.Summary = "product development process"
+	if err := db.Save(both).Error; err != nil {
+		t.Fatalf("update both: %v", err)
+	}
+	onlyProduct := createTestSkill(t, db, provider, filepath.Join(baseDir, "provider", "product-ops"), "product-ops")
+	onlyProduct.Summary = "product operations"
+	if err := db.Save(onlyProduct).Error; err != nil {
+		t.Fatalf("update product-only: %v", err)
+	}
+
+	skills, err := service.ListSkills(ctx, SkillListFilters{Query: "product development"})
+	if err != nil {
+		t.Fatalf("ListSkills: %v", err)
+	}
+	if len(skills) != 1 || skills[0].Name != "product-development-lifecycle" {
+		names := make([]string, 0, len(skills))
+		for _, skill := range skills {
+			names = append(names, skill.Name)
+		}
+		t.Fatalf("expected only product-development-lifecycle, got %v", names)
 	}
 }

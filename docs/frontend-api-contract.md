@@ -24,7 +24,9 @@
 
 - `GET /api/dashboard`
 - `GET /api/providers`
-- `GET /api/skills?q=&provider=&status=&sort=`
+- `GET /api/skills?q=&provider=&category=&tag=&status=&conflict=&sort=&grouped=`
+
+`q` keeps a skill only when every whitespace-separated keyword appears, case-insensitively, as contiguous text in name, slug, directory name, tags, or summary. Provider name and body are not searched. Empty `q` means no text filter. See `docs/pdl/pdl-20260822-01-catalog-search-precision/`.
 
 ### Dashboard
 
