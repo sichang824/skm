@@ -390,6 +390,7 @@ func runSkillsList(args []string, stdout, stderr io.Writer) int {
 	status := fs.String("status", "", "filter by status")
 	sortBy := fs.String("sort", "name", "sort by name, provider, status, lastScanned")
 	conflict := fs.String("conflict", "", "filter by conflict: true or false")
+	digest := fs.Bool("digest", false, "compact one-line-per-skill digest for LLM context injection")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -430,6 +431,11 @@ func runSkillsList(args []string, stdout, stderr io.Writer) int {
 	})
 	if err != nil {
 		return printError(stderr, err)
+	}
+
+	if *digest {
+		renderSkillsDigest(stdout, skills, deps.cfg.DBDSN)
+		return 0
 	}
 
 	if *jsonOutput {
@@ -2023,7 +2029,7 @@ func printSkillsUsage(out io.Writer) {
 	fmt.Fprintln(out, "skm skills lets you list skills, inspect details, manage .to metadata, and move or sync skill copies.")
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Usage:")
-	fmt.Fprintln(out, "  skm skills [-q|--query text] [--provider zid-or-name] [--category value] [--tag value] [--status value] [--sort name|provider|status|lastScanned] [--conflict true|false] [--json]")
+	fmt.Fprintln(out, "  skm skills [-q|--query text] [--provider zid-or-name] [--category value] [--tag value] [--status value] [--sort name|provider|status|lastScanned] [--conflict true|false] [--digest] [--json]")
 	fmt.Fprintln(out, "  skm skills get <skill-zid> [path] [--files] [--commands] [--json]")
 	fmt.Fprintln(out, "  skm skills to [--provider-path <path>] [--directory <path> ...] [--include <pattern> ...] [--exclude <pattern> ...] [--json]")
 	fmt.Fprintln(out, "  skm skills delete <skill-zid> [--force] [--json]")
@@ -2052,6 +2058,8 @@ func printSkillsUsage(out io.Writer) {
 	fmt.Fprintln(out, "  -q, --query string   fuzzy search skills by name, slug, tags, category, provider, or summary")
 	fmt.Fprintln(out, "                       multiple space-separated words must all match; results are ranked by relevance")
 	fmt.Fprintln(out, "                       combines with --provider, --category, --tag, --status, and --conflict")
+	fmt.Fprintln(out, "      --digest         compact one-line-per-skill digest (NAME/ZID/PROVIDER/STATUS/COMMANDS/SUMMARY)")
+	fmt.Fprintln(out, "                       for LLM context injection; combines with all list filters")
 	fmt.Fprintln(out, "  -h, --help           help for skm skills")
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Use \"skm skills [command] --help\" for more information about a command.")

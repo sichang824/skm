@@ -1,11 +1,22 @@
 ---
 name: skm
 description: "Use when working with the local skm CLI to manage skill providers, catalog scans, issues, skill copies, on-demand skill content retrieval (skills get), and package.json command execution (skills exec). Triggers: skm, providers, scan, skills link, skills move, skills sync, skills get, skills exec, execs, gen-operations, package.json commands, issues, dashboard."
+allowed-tools: Bash(skm dashboard:*), Bash(skm skills --digest:*)
 ---
 
 # Skill: skm CLI
 
 用 `skm` CLI 管理 skill provider、catalog、link/sync 副本与 issues。**Provider 是动态的**——运行时向 SKM 查 live catalog，不要背 ZID、路径或数量。
+
+## 实时 Catalog（自动注入，勿重复查询）
+
+以下两块内容在 skill 加载时由动态上下文注入实时生成（占位命令的输出被原位替换），**直接作为当前事实使用**——不要再跑 `skm skills` / `skm providers` 重复查询；仅当结果可疑或用户明确说刚改过数据时才 `scan` 后重取。
+
+!`skm dashboard`
+
+!`skm skills --digest`
+
+digest 每行一个 skill（TSV）：`NAME→ZID→PROVIDER→STATUS→COMMANDS→SUMMARY`，**每个名字只有一行**：同名条目（多版本目录、源+副本）折叠为 `×N`，权威行按 源目录 > ready > 最新版本 选取；冲突败者（isEffective=false）不列出。STATUS 空 = ready；`(copy)` = 权威行本身是副本（源不在库中，少见）；命令带 `*` = 需要 `--yes`，超过 8 个折叠为 `…+N`；SUMMARY 截断至 44 字符；折叠/省略计数都在头部。头部 `db:` 不是 `~/.skm/app.db` → 连到了 dev 库（见预检）。
 
 ## 核心原则
 
@@ -171,7 +182,7 @@ skm skills gen-operations <zid> [--check] | --all      # 从 package.json 重生
 
 ```bash
 skm version | dashboard | providers [--json] | skills [--json] | issues | scan all | scan provider <zid>
-skm skills [-q text] [--provider zid-or-name] [--category v] [--tag v] [--status v] [--sort name|provider|status|lastScanned] [--conflict true|false]
+skm skills [-q text] [--provider zid-or-name] [--category v] [--tag v] [--status v] [--sort name|provider|status|lastScanned] [--conflict true|false] [--digest]
 skm skills get <zid> [path] [-f/--files] [--commands] | skills link <zid> --to <prov-zid> | skills sync <zid> | skills sync-copies <zid>
 skm skills exec <zid> <command> [--input json|@file|-] [--env K=V] [--yes] [--timeout sec] [--isolate] [--pin hash] [--dry-run] [--json] [-- args...]
 skm skills exec <zid> --setup [--isolate] [--force] [--pin hash] | skills execs [--skill <zid>] [--limit N] | skills gen-operations <zid>|--all [--check]
