@@ -13,6 +13,7 @@ WAILS_VERSION := v2.12.0
 CLI_BIN := build/bin/skm
 APP_BUNDLE := build/bin/SKM.app
 APP_INSTALL_DIR ?= /Applications
+VERSION ?= $(shell rustytag show --quiet 2>/dev/null || echo dev)
 
 BACKEND_PORT ?= 8080
 FRONTEND_PORT ?= 5173
@@ -112,7 +113,7 @@ build: check-tools ## Build backend binary and frontend assets
 
 cli-build: check-tools ## Build the skm CLI binary
 	@mkdir -p build/bin
-	@cd $(BACKEND_DIR) && go build -o ../$(CLI_BIN) ./cmd/skm
+	@cd $(BACKEND_DIR) && go build -ldflags "-X backend-go/app.Version=$(VERSION)" -o ../$(CLI_BIN) ./cmd/skm
 
 cli-install: cli-build ## Install the skm CLI to ~/.local/bin
 	@mkdir -p $(HOME)/.local/bin
@@ -122,16 +123,9 @@ cli-install: cli-build ## Install the skm CLI to ~/.local/bin
 app-dev: check-tools $(WAILS) ## Start the Wails desktop app in development mode
 	@$(WAILS) dev
 
-app-build: check-tools $(WAILS) ## Build the macOS desktop app bundle with Wails
-	@$(WAILS) build -platform darwin/universal
-	@app_bundle=$$(find build -maxdepth 4 -type d -name '*.app' | head -n 1); \
-	if [ -n "$$app_bundle" ]; then \
-		mkdir -p "$$app_bundle/Contents/Resources"; \
-		cd $(BACKEND_DIR) && go build -o ../"$$app_bundle"/Contents/Resources/skm ./cmd/skm; \
-		echo "Bundled CLI into $$app_bundle/Contents/Resources/skm"; \
-	else \
-		echo "Warning: app bundle not found, skipped CLI bundling"; \
-	fi
+app-build: check-tools $(WAILS) ## Build and package the macOS universal app and CLI
+	@$(WAILS) build -platform darwin/universal -trimpath -ldflags "-X backend-go/app.Version=$(VERSION)"
+	@bash scripts/package-macos.sh "$(VERSION)"
 
 app-build-install: app-build ## Build and install the macOS desktop app to /Applications
 	@test -d "$(APP_BUNDLE)" || { echo "Error: app bundle not found at $(APP_BUNDLE)"; exit 1; }

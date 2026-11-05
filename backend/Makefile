@@ -26,7 +26,7 @@ seed:
 
 test:
 	@echo "🧪 Running tests..."
-	@go test ./... -count=1 -v 2>&1 | grep -v "no test files" || true
+	@go test ./... -count=1
 	@echo ""
 	@echo "✅ Tests completed"
 

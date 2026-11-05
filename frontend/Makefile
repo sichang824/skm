@@ -43,7 +43,7 @@ dev:
 
 test:
 	@echo "🧪 Running tests..."
-	pnpm test -- --run
+	pnpm test:run
 
 test-watch:
 	@echo "🧪 Running tests in watch mode..."

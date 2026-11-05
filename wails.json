@@ -3,7 +3,7 @@
   "name": "SKM",
   "outputfilename": "SKM",
   "frontend:dir": "frontend",
-  "frontend:install": "pnpm install",
+  "frontend:install": "pnpm install --frozen-lockfile",
   "frontend:build": "pnpm build",
   "frontend:dev:watcher": "pnpm dev -- --host 127.0.0.1 --port 34116",
   "frontend:dev:serverUrl": "auto",

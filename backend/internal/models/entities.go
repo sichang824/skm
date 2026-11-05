@@ -5,7 +5,7 @@ import (
 	"os"
 	"sync"
 
-	"zid/idcodec"
+	"backend-go/internal/idcodec"
 )
 
 // ZID codec initialization

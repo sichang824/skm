@@ -13,7 +13,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 
 	"gorm.io/gorm"
@@ -135,9 +134,9 @@ type ExecRequest struct {
 	AssumeYes       bool
 	TimeoutOverride time.Duration
 	DryRun          bool
-	Isolate         bool   // force execution in a materialized cache copy
-	Pin             string // run the version whose source hash starts with this (normalized lowercase hex)
-	Trigger         string // "cli" (default) or "http"; recorded by the audit trail
+	Isolate         bool      // force execution in a materialized cache copy
+	Pin             string    // run the version whose source hash starts with this (normalized lowercase hex)
+	Trigger         string    // "cli" (default) or "http"; recorded by the audit trail
 	Stdout          io.Writer // nil -> captured into ExecResult.Stdout
 	Stderr          io.Writer // nil -> captured into ExecResult.Stderr
 }
@@ -401,17 +400,9 @@ func (s *ExecService) Exec(ctx context.Context, req *ExecRequest) (result *ExecR
 		defer cancel()
 	}
 
-	cmd := exec.CommandContext(runCtx, "sh", "-c", fullLine)
+	cmd := newShellCommand(runCtx, fullLine)
 	cmd.Dir = loc.WorkDir
 	cmd.Env = env
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		if cmd.Process != nil {
-			// Kill the whole process group so children of the shell die too.
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
-		return nil
-	}
 	cmd.WaitDelay = 5 * time.Second
 
 	var stdoutBuffer, stderrBuffer bytes.Buffer
@@ -812,16 +803,9 @@ func runLifecycleCommand(ctx context.Context, workDir, line string, env []string
 		defer cancel()
 	}
 
-	cmd := exec.CommandContext(runCtx, "sh", "-c", line)
+	cmd := newShellCommand(runCtx, line)
 	cmd.Dir = workDir
 	cmd.Env = env
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		if cmd.Process != nil {
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
-		return nil
-	}
 	cmd.WaitDelay = 5 * time.Second
 
 	var captured bytes.Buffer

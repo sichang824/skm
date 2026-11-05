@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -245,11 +244,7 @@ func (s *ExecService) acquireExecLock(zid string, shared bool) (*execLock, error
 	if err != nil {
 		return nil, fmt.Errorf("open exec cache lock: %w", err)
 	}
-	how := syscall.LOCK_EX
-	if shared {
-		how = syscall.LOCK_SH
-	}
-	if err := syscall.Flock(int(file.Fd()), how); err != nil {
+	if err := lockExecFile(file, shared); err != nil {
 		_ = file.Close()
 		return nil, fmt.Errorf("lock exec cache for %s: %w", zid, err)
 	}
@@ -260,7 +255,7 @@ func (l *execLock) release() {
 	if l == nil || l.file == nil {
 		return
 	}
-	_ = syscall.Flock(int(l.file.Fd()), syscall.LOCK_UN)
+	_ = unlockExecFile(l.file)
 	_ = l.file.Close()
 }
 

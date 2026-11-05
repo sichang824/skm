@@ -1,0 +1,156 @@
+name: CI & Release
+
+on:
+  push:
+    branches: [main, 'codex/**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  GOWORK: 'off'
+  CGO_ENABLED: '1'
+  WAILS_VERSION: v2.12.0
+
+jobs:
+  test:
+    name: Backend & frontend tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: |
+            go.sum
+            backend/go.sum
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - run: npm install --global pnpm@10.32.0
+      - run: pnpm install --frozen-lockfile
+        working-directory: frontend
+      - run: go test ./... -count=1
+        working-directory: backend
+      - run: pnpm test:run
+        working-directory: frontend
+
+  build:
+    name: Build ${{ matrix.platform }}
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15-intel
+            platform: darwin/universal
+            package: macos-universal
+          - os: windows-2025
+            platform: windows/amd64
+            package: windows-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: |
+            go.sum
+            backend/go.sum
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - run: npm install --global pnpm@10.32.0
+      - name: Set build version from the RustyTag-created tag
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || exit 1
+            echo "SKM_VERSION=$GITHUB_REF_NAME" >> "$GITHUB_ENV"
+          else
+            echo "SKM_VERSION=dev-${GITHUB_SHA:0:7}" >> "$GITHUB_ENV"
+          fi
+      - name: Configure Windows C compiler and POSIX shell
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $gcc = 'C:\msys64\mingw64\bin'
+          if (-not (Test-Path "$gcc\gcc.exe")) { throw 'MinGW GCC is missing' }
+          $gcc | Out-File -FilePath $env:GITHUB_PATH -Append
+          'C:\Program Files\Git\bin' | Out-File -FilePath $env:GITHUB_PATH -Append
+          'CC=gcc' | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Windows native tests (SQLite, file locks, process cancellation, bundled CLI)
+        if: runner.os == 'Windows'
+        shell: bash
+        working-directory: backend
+        run: go test ./... -count=1 -run '^Test(Release|EncodeDecode|GetPrefixForTable|Roundtrip|Bounds|Digest|RenderSkillsDigest|CollapseDigestRows|AcquireExecLockSerializesWriters)'
+      - name: Install Wails CLI
+        shell: bash
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${WAILS_VERSION}
+      - name: Build desktop application
+        shell: bash
+        run: |
+          node -e 'const fs=require("node:fs"); const p=JSON.parse(fs.readFileSync("wails.json")); p.info.productVersion=process.env.SKM_VERSION.replace(/^v/, "").split("-")[0] || "0.0.0"; if(process.env.SKM_VERSION.startsWith("dev-")) p.info.productVersion="0.0.0"; fs.writeFileSync("wails.json", JSON.stringify(p,null,2));'
+          wails build -platform '${{ matrix.platform }}' -trimpath -webview2 embed -ldflags "-X backend-go/app.Version=${SKM_VERSION}"
+      - name: Package macOS universal app and CLI
+        if: runner.os == 'macOS'
+        shell: bash
+        run: bash scripts/package-macos.sh "$SKM_VERSION"
+      - name: Package Windows app and CLI
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/package-windows.ps1 -Version $env:SKM_VERSION
+      - uses: actions/upload-artifact@v6
+        with:
+          name: SKM-${{ matrix.package }}
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: SKM-*
+          merge-multiple: true
+          path: dist
+      - name: Checksums and release notes
+        shell: bash
+        run: |
+          test "$(find dist -maxdepth 1 -name '*.zip' | wc -l)" -eq 2
+          (cd dist && sha256sum *.zip > SHA256SUMS.txt)
+          cp docs/release-notes.md dist/release-notes.md
+      - name: Publish only after both platforms succeed
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "SKM $RELEASE_TAG" --notes-file dist/release-notes.md
+          fi
+          gh release upload "$RELEASE_TAG" dist/*.zip dist/SHA256SUMS.txt --clobber
+          if [[ "$RELEASE_TAG" == *-* ]]; then
+            gh release edit "$RELEASE_TAG" --draft=false --prerelease
+          else
+            gh release edit "$RELEASE_TAG" --draft=false --prerelease=false --latest
+          fi

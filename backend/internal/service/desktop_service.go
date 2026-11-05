@@ -109,7 +109,7 @@ func (s *DesktopService) cliInstallPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(homeDir, ".local", "bin", "skm"), nil
+	return filepath.Join(homeDir, ".local", "bin", cliBinaryName), nil
 }
 
 func (s *DesktopService) findCLISource() (string, error) {
@@ -130,14 +130,15 @@ func (s *DesktopService) cliSourceCandidates() []string {
 	if executablePath, err := s.executablePath(); err == nil {
 		executableDir := filepath.Dir(executablePath)
 		contentsDir := filepath.Dir(executableDir)
-		candidates = append(candidates, filepath.Join(contentsDir, "Resources", "skm"))
+		candidates = append(candidates, filepath.Join(contentsDir, "Resources", cliBinaryName))
+		candidates = append(candidates, filepath.Join(executableDir, "cli", cliBinaryName))
 		for current := executableDir; current != filepath.Dir(current); current = filepath.Dir(current) {
-			candidates = append(candidates, filepath.Join(current, "build", "bin", "skm"))
+			candidates = append(candidates, filepath.Join(current, "build", "bin", cliBinaryName))
 		}
 	}
 	if wd, err := s.workingDir(); err == nil {
 		for current := wd; current != filepath.Dir(current); current = filepath.Dir(current) {
-			candidates = append(candidates, filepath.Join(current, "build", "bin", "skm"))
+			candidates = append(candidates, filepath.Join(current, "build", "bin", cliBinaryName))
 		}
 	}
 	return uniqueStrings(candidates)

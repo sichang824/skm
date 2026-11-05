@@ -2,3 +2,11 @@ build/bin/
 frontend/dist/
 **/.DS_Store
 backend/_vendor/
+
+# Local toolchains and generated binaries
+.tools/bin/
+/skm
+/backend/server
+/backend/skm
+/dist/
+*.exe

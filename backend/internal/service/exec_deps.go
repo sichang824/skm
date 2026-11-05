@@ -37,8 +37,6 @@ const (
 const (
 	npmCiCommand      = "npm ci --no-audit --no-fund"
 	npmInstallCommand = "npm install --no-audit --no-fund"
-	venvCreateCommand = "python3 -m venv .venv"
-	pipInstallCommand = ".venv/bin/pip install -r requirements.txt"
 )
 
 // depsMarkerFile records managed dependency installation completions per

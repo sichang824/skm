@@ -16,7 +16,8 @@ import (
 	"gorm.io/gorm"
 )
 
-const Version = "1.0.0"
+// Version is set from the Git tag by release builds.
+var Version = "dev"
 
 type App struct {
 	Config  *config.Config

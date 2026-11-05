@@ -2,13 +2,33 @@
 
 [中文文档](README.zh-CN.md)
 
-SKM is a local-first Skills Manager for scanning multiple providers, indexing `SKILL.md` metadata, identifying issues and conflicts, and managing everything through a web console and a macOS desktop app.
+SKM is a local-first Skills Manager for scanning multiple providers, indexing `SKILL.md` metadata, identifying issues and conflicts, and managing everything through a web console and macOS and Windows desktop apps.
+
+[![CI & Release](https://github.com/sichang824/skm/actions/workflows/release.yml/badge.svg)](https://github.com/sichang824/skm/actions/workflows/release.yml)
+[![Latest release](https://img.shields.io/github/v/release/sichang824/skm)](https://github.com/sichang824/skm/releases/latest)
+
+**欢迎哔哩哔哩的小伙伴们使用 SKM！** 欢迎体验、分享使用心得，也欢迎在视频评论区或 [GitHub Issues](https://github.com/sichang824/skm/issues) 反馈问题。[中文下载与使用说明](README.zh-CN.md#下载与安装)。
+
+## Download
+
+Get a ready-to-run app from **[GitHub Releases](https://github.com/sichang824/skm/releases/latest)**. Go and Node.js are only needed for development.
+
+| Platform | Archive | Installation |
+| --- | --- | --- |
+| macOS (Apple Silicon and Intel) | `SKM-vVERSION-macos-universal.zip` | Extract and drag `SKM.app` into Applications |
+| Windows 10/11 x64 | `SKM-vVERSION-windows-x64.zip` | Extract the entire archive and open `SKM.exe`; keep the adjacent `cli` folder |
+
+Add your skill folders in **Providers**, then scan to browse and manage them. Local data defaults to `.skm` in your user home directory and is preserved when replacing the app during upgrades.
+
+Release builds are not developer-certificate signed or Apple-notarized. macOS may require “Open Anyway” in System Settings → Privacy & Security; Windows may show SmartScreen. Windows needs [Microsoft WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/); the app offers the official bootstrapper when it is missing (installation requires internet access).
+
+Browsing and scanning need no extra shell tools. Running skill commands on Windows requires [Git for Windows](https://git-scm.com/download/win), with its `Git\bin` directory containing `sh.exe` on PATH. Install Node.js, Python, or other tools required by individual skill scripts separately.
 
 The project currently consists of three parts:
 
 - Go backend: scanning, indexing, conflict detection, and REST APIs
 - React frontend: dashboard, skill browsing, provider management, and issue views
-- Wails desktop host: packages the application as a macOS desktop app
+- Wails desktop host: packages the application as macOS and Windows desktop apps
 
 ## Features
 
@@ -16,7 +36,7 @@ The project currently consists of three parts:
 - Scan skill directories and extract `SKILL.md`, frontmatter, directory trees, and text file content
 - Visualize scan history, latest issues, conflict groups, and dashboard metrics
 - Attach skill content to another provider and track `.to` and `.from` metadata
-- Support both browser-based development and a macOS desktop runtime
+- Support both browser-based development and macOS and Windows desktop runtimes
 
 ## Preview
 
@@ -70,7 +90,7 @@ skm/
 ### Prerequisites
 
 - Go 1.24+
-- Node.js 20+
+- Node.js 22.12+
 - pnpm 10+
 
 ### Run the full stack
@@ -179,7 +199,7 @@ skm skills --query "jira issue" --provider "Workspace Skills" --status ready   #
 skm skills get SKIL0001                    # skill info + SKILL.md content + directory path
 skm skills get SKIL0001 --files            # skill info + ls-style listing of all files
 skm skills get SKIL0001 scripts/run.sh     # file info + file content (binary files show info only)
-skm skills to --provider PROV0002 --include README.md --include scripts/** --exclude plugins/**
+skm skills to --provider-path /path/to/provider --include README.md --include scripts/** --exclude plugins/**
 skm skills link SKIL0001 --to PROV0002
 skm skills move SKIL0001 --to PROV0003
 skm skills sync SKIL0002
@@ -249,6 +269,23 @@ When running through Wails in development, the desktop host also reads `backend/
 - Frontend setup and scripts: `frontend/README.md`
 - Frontend API contract: `docs/frontend-api-contract.md`
 - Product notes: `docs/PRD.md`
+
+## Releases and version management
+
+Versions are managed with **RustyTag**. Git tags are the source of truth; CI injects the tag into the app and CLI version. The repository configures the `v` prefix in `.rustytag.json`.
+
+```bash
+# Commit all product changes first, then create the next version on main.
+rustytag show
+rustytag patch        # use minor or major when appropriate
+# For the first public release: rustytag patch --version v0.1.0
+
+git push --follow-tags origin main
+```
+
+Every push to `main`, pull request, and manual workflow run executes tests and builds macOS universal and Windows x64 packages. Development packages are available in the workflow's Artifacts section. Pushing a RustyTag-created `v*` tag also publishes a GitHub Release with both ZIP archives and `SHA256SUMS.txt`, after all checks and builds succeed. Tags containing a prerelease suffix are marked as prereleases. No personal access token is needed for CI publishing.
+
+See [the release workflow guide](docs/releases.md) for local builds and release steps.
 
 ## Contributing
 

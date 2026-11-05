@@ -2,13 +2,35 @@
 
 [English](README.md)
 
-SKM 是一个面向本地技能目录的 Skills Manager，用来扫描多个 Provider、索引 `SKILL.md` 元数据、识别冲突与异常，并通过 Web 控制台和 macOS 桌面应用进行可视化管理。
+SKM 是一个面向本地技能目录的 Skills Manager，用来扫描多个 Provider、索引 `SKILL.md` 元数据、识别冲突与异常，并通过 Web 控制台和 macOS / Windows 桌面应用进行可视化管理。
+
+[![CI & Release](https://github.com/sichang824/skm/actions/workflows/release.yml/badge.svg)](https://github.com/sichang824/skm/actions/workflows/release.yml)
+[![下载最新版本](https://img.shields.io/github/v/release/sichang824/skm?label=下载最新版本)](https://github.com/sichang824/skm/releases/latest)
+
+**欢迎哔哩哔哩的小伙伴们来使用 SKM！** 这是我自己日常使用的本地 Skills 管理工具，希望也能帮你把分散在不同 AI 工具里的技能整理起来。欢迎体验、分享，也欢迎在视频评论区交流使用心得。
+
+## 下载与安装
+
+无需配置 Go、Node.js 或开发环境，直接到 **[Releases 下载最新版本](https://github.com/sichang824/skm/releases/latest)**。
+
+| 系统 | 下载文件 | 安装方式 |
+| --- | --- | --- |
+| macOS（Apple Silicon / Intel） | `SKM-v版本号-macos-universal.zip` | 解压后将 `SKM.app` 拖到“应用程序” |
+| Windows 10/11 x64 | `SKM-v版本号-windows-x64.zip` | 完整解压到固定目录，双击 `SKM.exe`；保留旁边的 `cli` 目录 |
+
+首次打开时，在 **Providers** 中添加你的技能目录，再执行扫描，即可在 Skills 目录页浏览和管理。默认数据保存在用户目录的 `.skm` 文件夹中；升级时替换程序，保留数据目录即可。
+
+目前发布包未使用开发者证书签名或 Apple 公证。macOS 若阻止打开，可在“系统设置 → 隐私与安全性”中确认来源后选择“仍要打开”；Windows 可能显示 SmartScreen 提示。Windows 需要 [Microsoft WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)，缺少时应用会提示运行官方安装引导器，安装过程需要网络。
+
+浏览、扫描和管理技能不需要额外的命令行工具。Windows 上执行技能命令时，需要安装 [Git for Windows](https://git-scm.com/download/win)，并把包含 `sh.exe` 的 `Git\bin` 目录加入 PATH；技能脚本使用的 Node.js、Python 等工具也需自行安装。
+
+遇到问题欢迎提交 [GitHub Issue](https://github.com/sichang824/skm/issues)，附上 SKM 版本、系统版本和复现步骤。如果觉得好用，欢迎点个 Star，也欢迎推荐给其他哔哩哔哩用户！
 
 项目当前由三部分组成：
 
 - Go 后端：负责扫描、索引、冲突检测和 REST API
 - React 前端：负责 Dashboard、技能浏览、Provider 管理和问题视图
-- Wails 桌面宿主：将前后端打包为 macOS 桌面应用
+- Wails 桌面宿主：将前后端打包为 macOS / Windows 桌面应用
 
 ## Features
 
@@ -16,7 +38,7 @@ SKM 是一个面向本地技能目录的 Skills Manager，用来扫描多个 Pro
 - 扫描技能目录并提取 `SKILL.md`、frontmatter、目录树和文本文件内容
 - 展示扫描历史、最新异常、冲突分组和 Dashboard 汇总指标
 - 支持把技能内容按规则 attach 到其他 Provider，并追踪 `.to` / `.from` 元数据
-- 同时支持浏览器开发模式和 macOS 桌面应用模式
+- 同时支持浏览器开发模式和 macOS / Windows 桌面应用模式
 
 ## 界面预览
 
@@ -70,7 +92,7 @@ skm/
 ### Prerequisites
 
 - Go 1.24+
-- Node.js 20+
+- Node.js 22.12+
 - pnpm 10+
 
 ### Run the full stack
@@ -175,7 +197,7 @@ skm providers update PROV0001 --priority 400 --description "main workspace provi
 skm providers delete PROV0001
 skm skills --provider "Workspace Skills"
 skm skills get SKIL0001
-skm skills to --provider PROV0002 --include README.md --include scripts/** --exclude plugins/**
+skm skills to --provider-path /path/to/provider --include README.md --include scripts/** --exclude plugins/**
 skm skills link SKIL0001 --to PROV0002
 skm skills move SKIL0001 --to PROV0003
 skm skills sync SKIL0002
@@ -245,6 +267,23 @@ GET  /api/skills/:zid/file-content?path=SKILL.md
 - Frontend setup and scripts: `frontend/README.md`
 - Frontend API contract: `docs/frontend-api-contract.md`
 - Product notes: `docs/PRD.md`
+
+## 版本管理与自动发布
+
+使用 **RustyTag** 管理语义化版本、生成更新日志和创建标签。Git 标签是版本号的唯一来源；CI 将标签写入应用和 CLI 的版本信息。仓库的 `.rustytag.json` 已配置 `v` 前缀。
+
+```bash
+# 先提交所有改动，再在 main 上创建版本。
+rustytag show
+rustytag patch        # 新功能用 minor，破坏性变更用 major
+# 首次公开发布：rustytag patch --version v0.1.0
+
+git push --follow-tags origin main
+```
+
+GitHub Actions 会在 main 更新、Pull Request 和手动运行时执行测试，并编译 macOS 通用版与 Windows x64 版；开发构建可在 Actions 的 Artifacts 中下载。推送 RustyTag 创建的 `v*` 标签后，只有测试及两个平台构建都成功，才会自动发布 Release，包含两个 ZIP 包与 `SHA256SUMS.txt`。带预发布后缀的标签会标记为 Pre-release。发布使用 GitHub 自动提供的令牌，无需配置个人 Token。
+
+详见 [发布维护说明](docs/releases.md)。
 
 ## Contributing
 
