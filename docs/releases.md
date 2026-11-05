@@ -10,7 +10,7 @@
 4. 检查 `git status --short` 与 `git tag --points-at HEAD`，然后 `git push --follow-tags origin main`。
 5. 在 Actions 中等待测试、macOS 和 Windows 构建通过。流水线先创建草稿，上传两个平台的 ZIP 和校验文件后再公开 Release，避免出现缺少平台安装包的发布。
 
-RustyTag 仓库配置仅保存 `version_prefix`。不要将 GitHub Token 写入仓库；CI 通过内置的 `GITHUB_TOKEN` 发布。发布失败时可修复后创建新版本；网络等暂时问题可以重新运行原工作流，附件上传支持覆盖重试。
+RustyTag 仓库配置保存 `version_prefix` 和工具维护的版本元数据。不要将 GitHub Token 写入仓库；CI 通过内置的 `GITHUB_TOKEN` 发布。发布失败时可修复后创建新版本；网络等暂时问题可以重新运行原工作流，附件上传支持覆盖重试。
 
 ## 流水线
 
