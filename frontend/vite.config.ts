@@ -10,7 +10,7 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    visualizer({
+    process.env.ANALYZE === "true" && visualizer({
       open: false,  // Don't auto-open browser
       filename: "dist/stats.html",
       gzipSize: true,

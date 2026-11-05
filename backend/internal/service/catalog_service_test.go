@@ -1072,6 +1072,11 @@ func openCatalogTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get sql DB: %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	if err := db.AutoMigrate(models.ModelsForAutoMigrate...); err != nil {
 		t.Fatalf("auto migrate: %v", err)
 	}

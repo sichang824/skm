@@ -59,7 +59,7 @@ build:
 
 build-analyze:
 	@echo "🏗️  Building with bundle analyzer..."
-	pnpm build
+	ANALYZE=true pnpm build
 	@echo "📊 Opening bundle analyzer..."
 	@open dist/stats.html || xdg-open dist/stats.html || start dist/stats.html
 

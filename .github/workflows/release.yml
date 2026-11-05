@@ -106,11 +106,17 @@ jobs:
       - name: Install Wails CLI
         shell: bash
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${WAILS_VERSION}
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: frontend
+      - name: Build frontend assets
+        run: pnpm build
+        working-directory: frontend
       - name: Build desktop application
         shell: bash
         run: |
           node -e 'const fs=require("node:fs"); const p=JSON.parse(fs.readFileSync("wails.json")); p.info.productVersion=process.env.SKM_VERSION.replace(/^v/, "").split("-")[0] || "0.0.0"; if(process.env.SKM_VERSION.startsWith("dev-")) p.info.productVersion="0.0.0"; fs.writeFileSync("wails.json", JSON.stringify(p,null,2));'
-          wails build -platform '${{ matrix.platform }}' -trimpath -webview2 embed -ldflags "-X backend-go/app.Version=${SKM_VERSION}"
+          wails build -s -platform '${{ matrix.platform }}' -trimpath -webview2 embed -ldflags "-X backend-go/app.Version=${SKM_VERSION}"
       - name: Package macOS universal app and CLI
         if: runner.os == 'macOS'
         shell: bash
