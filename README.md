@@ -283,7 +283,7 @@ rustytag patch        # use minor or major when appropriate
 git push --follow-tags origin main
 ```
 
-Every push to `main`, pull request, and manual workflow run executes tests and builds macOS universal and Windows x64 packages. Development packages are available in the workflow's Artifacts section. Pushing a RustyTag-created `v*` tag also publishes a GitHub Release with both ZIP archives and `SHA256SUMS.txt`, after all checks and builds succeed. Tags containing a prerelease suffix are marked as prereleases. No personal access token is needed for CI publishing.
+Only pushing a RustyTag-created `v*` version tag triggers this workflow. It runs tests, builds macOS universal and Windows x64 packages, then publishes a GitHub Release with both ZIP archives and `SHA256SUMS.txt` after all checks and builds succeed. Branch commits (including `main`), documentation updates, and pull requests do not trigger it. Tags containing a prerelease suffix are marked as prereleases. No personal access token is needed for CI publishing.
 
 See [the release workflow guide](docs/releases.md) for local builds and release steps.
 

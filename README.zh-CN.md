@@ -281,7 +281,7 @@ rustytag patch        # 新功能用 minor，破坏性变更用 major
 git push --follow-tags origin main
 ```
 
-GitHub Actions 会在 main 更新、Pull Request 和手动运行时执行测试，并编译 macOS 通用版与 Windows x64 版；开发构建可在 Actions 的 Artifacts 中下载。推送 RustyTag 创建的 `v*` 标签后，只有测试及两个平台构建都成功，才会自动发布 Release，包含两个 ZIP 包与 `SHA256SUMS.txt`。带预发布后缀的标签会标记为 Pre-release。发布使用 GitHub 自动提供的令牌，无需配置个人 Token。
+只有推送 RustyTag 创建的 `v*` 版本标签才会触发这条流水线：执行测试、编译 macOS 通用版与 Windows x64 版，全部成功后自动发布 Release，包含两个 ZIP 包与 `SHA256SUMS.txt`。普通分支提交（包括 main）、文档更新和 Pull Request 都不会触发。带预发布后缀的标签会标记为 Pre-release。发布使用 GitHub 自动提供的令牌，无需配置个人 Token。
 
 详见 [发布维护说明](docs/releases.md)。
 

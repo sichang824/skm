@@ -4,7 +4,7 @@
 
 ## 发布一个版本
 
-1. 确认所有改动已经提交，并且 main 的 CI 全部通过。
+1. 在本地完成测试和检查，确认所有改动已经提交到 main。
 2. 在 main 上运行 `rustytag show --json` 检查当前版本。
 3. 用 `rustytag patch`、`rustytag minor` 或 `rustytag major` 创建新版本。首次公开发布用 `rustytag patch --version v0.1.0`。RustyTag 会生成 CHANGELOG、发布提交和 annotated tag。
 4. 检查 `git status --short` 与 `git tag --points-at HEAD`，然后 `git push --follow-tags origin main`。
@@ -14,9 +14,11 @@ RustyTag 仓库配置保存 `version_prefix` 和工具维护的版本元数据�
 
 ## 流水线
 
+仅推送 `v*` 版本标签时运行。普通分支提交（包括 main）、文档更新和 Pull Request 均不触发，也不提供手动触发入口。
+
 - `test`：Linux 上运行完整后端测试和前端测试。前端依赖使用锁文件安装。
 - `build`：macOS Intel runner 上编译通用版（主程序和内置 CLI 均包含 amd64、arm64）；Windows runner 上启用 MinGW / CGO，编译桌面程序和 CLI。Windows 原生测试覆盖 SQLite 模型、ZID、文件锁、CLI 安装与超时进程树清理；完整的 POSIX 脚本夹具测试在 Linux 上运行。
-- `release`：仅 `v*` 标签触发。只有前面的任务全部成功才上传附件并发布。非标签构建上传 Actions Artifacts，不创建 Release。
+- `release`：只有前面的任务全部成功才上传附件并公开 Release。
 
 macOS 采用临时签名以保持包完整性，不包含 Apple Developer ID 签名或公证；Windows 程序未签名。若后续接入正式签名证书，可在打包步骤扩展，首次启动说明应同步更新。
 
