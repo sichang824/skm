@@ -2,12 +2,65 @@
 
 [中文文档](README.zh-CN.md)
 
-SKM is a local-first Skills Manager for scanning multiple providers, indexing `SKILL.md` metadata, identifying issues and conflicts, and managing everything through a web console and macOS and Windows desktop apps.
+**SKM is a local Skills manager built primarily for agents.** Give an agent one SKM entry point so it can search for capabilities, read the instructions it needs, and run declared commands. Maintain skill sources centrally and let multiple agents use them on demand.
 
 [![CI & Release](https://github.com/sichang824/skm/actions/workflows/release.yml/badge.svg)](https://github.com/sichang824/skm/actions/workflows/release.yml)
 [![Latest release](https://img.shields.io/github/v/release/sichang824/skm)](https://github.com/sichang824/skm/releases/latest)
 
-**欢迎哔哩哔哩的小伙伴们使用 SKM！** 欢迎体验、分享使用心得，也欢迎在视频评论区或 [GitHub Issues](https://github.com/sichang824/skm/issues) 反馈问题。[中文下载与使用说明](README.zh-CN.md#下载与安装)。
+**欢迎哔哩哔哩的小伙伴们使用 SKM！** [中文理念与使用说明](README.zh-CN.md) · [GitHub Issues](https://github.com/sichang824/skm/issues)
+
+## Why I built SKM
+
+I have more than 280 Skills on my computer, all serving agents. I built a GUI for SKM, but rarely open it: agents do most of the searching, reading, and invoking.
+
+In my workflow, I do not install every business skill into each agent. SKM manages those skills, and agents learn one entry point for finding and using them. The size of the capability library can grow without requiring every task to carry the whole catalog.
+
+**Keep capabilities available; bring their content into context when the task needs it.** Agents still need their operating instructions, permissions, and an SKM entry point. This approach moves infrequent, task-specific knowledge out of the default context. See [the author's design notes](docs/agent-first.md) (Chinese).
+
+## Connect an agent
+
+Install the CLI and make `skm` available to your agent (see [CLI](#cli)). Register and scan your skill source directories once. The CLI works without launching the GUI or web service.
+
+```bash
+# Replace this path with your skill source directory.
+skm providers add --name "My Skills" --type workspace --root /path/to/skills
+skm scan all
+
+# Search when a task needs a skill.
+skm skills -q meeting
+skm skills --tag meeting
+
+# Replace placeholders with a returned ZID and a declared command name.
+skm skills get <skill-zid>
+skm skills get <skill-zid> references/guide.md
+skm skills get <skill-zid> --commands
+skm skills exec <skill-zid> <command> --dry-run
+skm skills exec <skill-zid> <command>
+```
+
+The keyword, tag, and file path above are examples; matches depend on your catalog. Search currently matches keywords in metadata such as names, directory names, tags, and summaries, rather than semantic similarity. Executable commands are optional.
+
+A small bootstrap instruction for an agent can be:
+
+> When a task needs specialized knowledge or tools, search with `skm skills -q <specific-keywords>`. Read a match with `skm skills get <ZID>`, then retrieve referenced files only as needed. Inspect declared commands and their arguments before invoking them with `skm skills exec`. Do not load the entire catalog or every skill body by default. Obtain user authorization when a command requires confirmation.
+
+Alternatively, expose this repository's [SKILL.md](SKILL.md) as one skill entry point and read detailed usage when needed. Agents need local command access, access to the skill directories, and appropriate permissions. Remote or sandboxed agents need an accessible runtime or integration.
+
+## What the implementation supports
+
+- **Search before reading:** discover relevant skills at task time, then retrieve their instructions and individual files.
+- **Shared sources:** multiple local agents can use the same indexed skill sources without copying the full business-skill collection into every agent.
+- **Instructions connected to execution:** `SKILL.md` describes usage; `package.json` declares commands. `exec` handles arguments, input validation, environment checks, timeouts, and declared confirmation requirements.
+- **Traceable calls:** execution records include status, exit codes, and content hashes. `--pin` can replay a historical version when matching content remains available.
+- **People intervene where needed:** the GUI helps inspect sources, conflicts, and issues; agents can handle routine capability access while people set goals, authorize actions, and resolve exceptions.
+
+## Context cost and future direction
+
+Copying fewer files on disk does not by itself reduce tokens. The benefit comes from reducing irrelevant material entering the agent's context. Search results, loaded instructions, and command output still consume tokens; net savings depend on the workload and need measurement.
+
+The existing [Agent Skills implementation guide](https://github.com/agentskills/agentskills/blob/main/docs/client-implementation/adding-skills-support.mdx) already describes loading skill bodies on demand. SKM's workflow also makes catalog discovery task-driven, so agents need not start with the entire catalog in context.
+
+My expectation is that more information and capabilities will be consumed directly by agents, with more work delegated between them. SKM currently provides local skill discovery, reading, and execution; it does not implement the A2A protocol or a general event-stream platform. The design notes distinguish today's implementation from that future direction.
 
 ## Download
 
@@ -18,25 +71,11 @@ Get a ready-to-run app from **[GitHub Releases](https://github.com/sichang824/sk
 | macOS (Apple Silicon and Intel) | `SKM-vVERSION-macos-universal.zip` | Extract and drag `SKM.app` into Applications |
 | Windows 10/11 x64 | `SKM-vVERSION-windows-x64.zip` | Extract the entire archive and open `SKM.exe`; keep the adjacent `cli` folder |
 
-Add your skill folders in **Providers**, then scan to browse and manage them. Local data defaults to `.skm` in your user home directory and is preserved when replacing the app during upgrades.
+For the optional GUI, add skill folders in **Providers**, then scan to browse and inspect them. Agents can use the CLI workflow above instead. Local data defaults to `.skm` in your user home directory and is preserved when replacing the app during upgrades.
 
 Release builds are not developer-certificate signed or Apple-notarized. macOS may require “Open Anyway” in System Settings → Privacy & Security; Windows may show SmartScreen. Windows needs [Microsoft WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/); the app offers the official bootstrapper when it is missing (installation requires internet access).
 
 Browsing and scanning need no extra shell tools. Running skill commands on Windows requires [Git for Windows](https://git-scm.com/download/win), with its `Git\bin` directory containing `sh.exe` on PATH. Install Node.js, Python, or other tools required by individual skill scripts separately.
-
-The project currently consists of three parts:
-
-- Go backend: scanning, indexing, conflict detection, and REST APIs
-- React frontend: dashboard, skill browsing, provider management, and issue views
-- Wails desktop host: packages the application as macOS and Windows desktop apps
-
-## Features
-
-- Manage multiple local skill providers, including enable, disable, edit, and delete flows
-- Scan skill directories and extract `SKILL.md`, frontmatter, directory trees, and text file content
-- Visualize scan history, latest issues, conflict groups, and dashboard metrics
-- Attach skill content to another provider and track `.to` and `.from` metadata
-- Support both browser-based development and macOS and Windows desktop runtimes
 
 ## Preview
 
@@ -44,7 +83,7 @@ The project currently consists of three parts:
 
 ![SKM dashboard](assets/dashboard.png)
 
-The dashboard surfaces provider counts, skill totals, latest issues, scan activity, and provider distribution in a single operational view.
+The optional GUI gives people an inspection view of provider counts, skill totals, issues, scan activity, and provider distribution.
 
 ### Skills Catalog
 
@@ -52,30 +91,22 @@ The dashboard surfaces provider counts, skill totals, latest issues, scan activi
 
 The skills catalog groups entries by provider, exposes related attached copies, and keeps browsing, filtering, and provider context in the same page.
 
-## Design
+## Design principles
 
-SKM is not intended to be a generic file browser. It is designed as an operating surface for skill-directory workflows. The current design focuses on three goals:
+Skill source directories, the index, and the invocation interface have distinct roles. Discovery is task-driven and content is loaded in stages. The CLI, REST API, and optional GUI share backend services. Attach, link, and sync remain available for compatibility; the preferred agent workflow uses centrally maintained sources with on-demand reading and execution.
 
-- Make scattered local skill providers discoverable, comparable, and maintainable in one place
-- Put `SKILL.md`, directory structure, scan results, and conflict signals into the same interface
-- Share one core capability set across web and desktop so the product does not split into two separate implementations
-
-Product decisions currently follow these principles:
-
-- Local-first: optimized for local directories, SQLite, and a low-friction developer workflow
-- Inspectable: scan results, issues, and file content should remain traceable and explainable
-- Incremental: solidify providers, scanning, conflicts, and attach flows before expanding into heavier collaboration features
-- Reusable: keep backend, frontend, and desktop host aligned on data models and API contracts
+See [the execution design](docs/skill-manifest-exec.md) for manifests, caching, version replay, and audit records. `--isolate` uses a cached working copy; it is not a permission sandbox.
 
 ## Architecture
 
 ```text
 skm/
-├── backend/    # Go API service and scanner
-├── frontend/   # React + Vite web UI
+├── backend/    # Shared services, scanner, REST API and cmd/skm CLI
+├── frontend/   # Optional React + Vite inspection UI
 ├── build/      # Desktop build output
 ├── main.go     # Wails desktop entry
 ├── wails.json  # Wails config
+├── SKILL.md    # Agent entry instructions
 └── README.md
 ```
 
@@ -85,7 +116,7 @@ skm/
 - Frontend: React 19, TypeScript, Vite, Tailwind CSS v4, React Router v7, Vitest
 - Desktop: Wails v2.12.0
 
-## Quick Start
+## Development
 
 ### Prerequisites
 
@@ -170,7 +201,7 @@ make app-build     # Build the macOS desktop app
 
 ## CLI
 
-SKM also ships a CLI that uses the same database and backend services as the desktop app.
+The CLI is the primary agent-facing entry point and shares the desktop app’s database and backend services. Use the CLI bundled in a Release (`SKM.app/Contents/Resources/skm` on macOS, `cli/skm.exe` on Windows) by putting it on PATH; launching the GUI is optional.
 
 Build it:
 
