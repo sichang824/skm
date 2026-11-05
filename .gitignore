@@ -5,6 +5,8 @@ backend/_vendor/
 
 # Local toolchains and generated binaries
 .tools/bin/
+/build/cli/
+/build/windows-package/
 /skm
 /backend/server
 /backend/skm
