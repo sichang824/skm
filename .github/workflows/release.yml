@@ -81,11 +81,19 @@ jobs:
           else
             echo "SKM_VERSION=dev-${GITHUB_SHA:0:7}" >> "$GITHUB_ENV"
           fi
+      - name: Install Windows C compiler
+        if: runner.os == 'Windows'
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: mingw-w64-ucrt-x86_64-gcc
+          path-type: inherit
       - name: Configure Windows C compiler and POSIX shell
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $gcc = 'C:\msys64\mingw64\bin'
+          $gcc = Join-Path '${{ steps.msys2.outputs.msys2-location }}' 'ucrt64\bin'
           if (-not (Test-Path "$gcc\gcc.exe")) { throw 'MinGW GCC is missing' }
           $gcc | Out-File -FilePath $env:GITHUB_PATH -Append
           'C:\Program Files\Git\bin' | Out-File -FilePath $env:GITHUB_PATH -Append
